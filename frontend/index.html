@@ -6,8 +6,21 @@
     <title>Spotify 3D Visualizer</title>
     <meta name="description" content="Experience your Spotify music in 3D with real-time WebGL visualizations">
     
+    <!-- WebGL specific meta tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#000000">
+    
+    <!-- Preload critical resources -->
+    <link rel="preload" href="https://sdk.scdn.co/spotify-player.js" as="script">
+    
     <!-- Spotify Web Playback SDK -->
     <script src="https://sdk.scdn.co/spotify-player.js"></script>
+    
+    <!-- ThreeJS shader chunks preload for faster loading -->
+    <script>
+      window.THREE_SHADER_CHUNK_INCLUDES = true;
+    </script>
     
     <!-- Font -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -106,6 +119,12 @@
         border-radius: 10px;
         width: 250px;
         text-align: center;
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+      }
+      
+      .feature:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
       }
 
       .feature h3 {
@@ -133,6 +152,11 @@
         border-radius: 8px;
         margin-bottom: 20px;
         display: none;
+        max-width: 600px;
+        text-align: center;
+        backdrop-filter: blur(5px);
+        box-shadow: 0 4px 10px rgba(255, 0, 0, 0.2);
+        border: 1px solid rgba(255, 0, 0, 0.3);
       }
       
       /* Animation for login screen */
@@ -168,6 +192,45 @@
         .feature {
           width: 90%;
           max-width: 300px;
+        }
+      }
+      
+      /* WebGL rendering canvas optimizations */
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        outline: none;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: none;
+      }
+      
+      /* Touch device optimizations */
+      @media (hover: none) {
+        .viz-button {
+          padding: 10px 18px; /* Larger touch targets on mobile */
+        }
+        
+        .control-button {
+          width: 48px;
+          height: 48px;
+        }
+        
+        .control-button.play-pause {
+          width: 56px;
+          height: 56px;
+        }
+      }
+      
+      /* Progressive enhancement for high-end devices */
+      @media (min-width: 1200px) and (min-height: 800px) {
+        .feature {
+          width: 280px;
+          padding: 24px;
+        }
+        
+        .logo-container h1 {
+          font-size: 3.5rem;
         }
       }
     </style>
@@ -210,5 +273,77 @@
 
     <!-- Main Entry Script -->
     <script type="module" src="/main.js"></script>
+    
+    <!-- WebGL Performance Monitor (development only) -->
+    <script type="module">
+      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        import('https://cdn.jsdelivr.net/npm/stats.js@0.17.0/build/stats.min.js')
+          .then(() => {
+            const stats = new Stats();
+            stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
+            document.body.appendChild(stats.dom);
+            
+            // Position in top-right corner
+            stats.dom.style.position = 'absolute';
+            stats.dom.style.top = '0px';
+            stats.dom.style.right = '0px';
+            stats.dom.style.left = 'auto';
+            
+            requestAnimationFrame(function loop() {
+              stats.update();
+              requestAnimationFrame(loop);
+            });
+          })
+          .catch(err => console.error('Stats.js could not be loaded:', err));
+      }
+    </script>
+    
+    <!-- Device optimization - helps with device orientation and fullscreen -->
+    <script>
+      // Fix for iOS full height
+      function setVH() {
+        let vh = window.innerHeight * 0.01;
+        document.documentElement.style.setProperty('--vh', `${vh}px`);
+      }
+      
+      // Set initial height
+      setVH();
+      
+      // Reset on resize and orientation change
+      window.addEventListener('resize', setVH);
+      window.addEventListener('orientationchange', setVH);
+      
+      // Handle fullscreen for better immersion
+      document.getElementById('app').addEventListener('click', () => {
+        // Only attempt fullscreen on user interaction and if not already fullscreen
+        if (!document.fullscreenElement && 
+            document.documentElement.requestFullscreen && 
+            window.matchMedia('(display-mode: browser)').matches) {
+          document.documentElement.requestFullscreen().catch(err => {
+            // Ignore failures - fullscreen is just an enhancement
+          });
+        }
+      });
+      
+      // WebGL context loss handling
+      window.addEventListener('webglcontextlost', (event) => {
+        event.preventDefault();
+        console.warn('WebGL context lost. Attempting recovery...');
+        
+        // Create notification to inform user
+        const notification = document.createElement('div');
+        notification.className = 'message-notification';
+        notification.textContent = 'Recovering visualization...';
+        document.body.appendChild(notification);
+        
+        // Show notification
+        setTimeout(() => notification.classList.add('show'), 10);
+        
+        // Attempt to reload page after brief delay
+        setTimeout(() => {
+          window.location.reload();
+        }, 2000);
+      });
+    </script>
   </body>
 </html>
