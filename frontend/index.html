@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
+    <title>Spotify 3D Visualizer</title>
+
+    <!-- Spotify Web Playback SDK -->
+    <script src="https://sdk.scdn.co/spotify-player.js"></script>
+
+    <!-- Styling -->
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        background-color: #000;
+        overflow: hidden;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        color: #fff;
+      }
+
+      #app {
+        width: 100vw;
+        height: 100vh;
+        position: relative;
+        display: none; /* Shown only after login */
+      }
+
+      #login-screen {
+        position: absolute;
+        width: 100vw;
+        height: 100vh;
+        background: linear-gradient(to bottom right, #121212, #1db954);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        color: white;
+        z-index: 2;
+      }
+
+      #login-screen h1 {
+        font-size: 2.5rem;
+        margin-bottom: 20px;
+      }
+
+      #connect-button {
+        font-size: 1.2rem;
+        padding: 12px 24px;
+        background-color: #1db954;
+        border: none;
+        border-radius: 8px;
+        color: white;
+        cursor: pointer;
+        transition: background-color 0.3s;
+      }
+
+      #connect-button:hover {
+        background-color: #1ed760;
+      }
+
+      #track-info {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        color: white;
+        z-index: 5;
+        background-color: rgba(0, 0, 0, 0.6);
+        padding: 12px 18px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        font-family: 'Segoe UI', Tahoma, sans-serif;
+        box-shadow: 0 0 10px #000;
+        animation: fadeIn 0.8s ease-out;
+      }
+
+      .track-container {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+
+      .track-container img {
+        width: 64px;
+        height: 64px;
+        object-fit: cover;
+        border-radius: 6px;
+      }
+
+      .track-container .text {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .track-container .title {
+        font-weight: bold;
+        font-size: 1rem;
+        color: #fff;
+      }
+
+      .track-container .artist {
+        font-size: 0.85rem;
+        color: #aaa;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- Login screen (hidden after successful login) -->
+    <div id="login-screen">
+      <h1>Spotify 3D Visualizer</h1>
+      <button id="connect-button">Connect to Spotify</button>
+    </div>
+
+    <!-- Three.js Canvas App Container -->
+    <div id="app"></div>
+
+    <!-- Vite Entry -->
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>
