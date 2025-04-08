@@ -3,26 +3,62 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const authRoutes = require('./routes/auth');
 
-require('dotenv').config();
-
+// Load environment variables
 dotenv.config();
 
+// Create Express app
 const app = express();
-const PORT = 8888;
+const PORT = process.env.PORT || 8888;
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
-app.use(cors({ origin: 'http://localhost:5173' }));
+// Middleware
+app.use(express.json()); // Parse JSON request bodies
+app.use(cors({
+  origin: FRONTEND_URL, // Allow requests from frontend
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  credentials: true // Allow cookies
+}));
+
+// Log requests in development
+if (process.env.NODE_ENV !== 'production') {
+  app.use((req, res, next) => {
+    console.log(`${req.method} ${req.url}`);
+    next();
+  });
+}
+
+// Routes
 app.use('/auth', authRoutes);
 
+// Root route
 app.get('/', (req, res) => {
-  res.send('Spotify Visualizer Backend is running.');
+  res.send({
+    message: 'Spotify Visualizer API',
+    status: 'running',
+    version: '1.0.0'
+  });
 });
 
-// Optional error handler
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    error: 'Not Found',
+    message: `The requested endpoint ${req.url} does not exist`
+  });
+});
+
+// Error handler
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).send('Internal Server Error');
+  console.error('Server error:', err);
+  
+  res.status(err.status || 500).json({
+    error: err.message || 'Internal Server Error',
+    stack: process.env.NODE_ENV === 'production' ? undefined : err.stack
+  });
 });
 
+// Start server
 app.listen(PORT, () => {
-  console.log(`Backend listening on http://localhost:${PORT}`);
+  console.log(`Server running at http://localhost:${PORT}`);
+  console.log(`Connected to frontend at ${FRONTEND_URL}`);
 });
