@@ -1,8 +1,20 @@
 // src/ui/TrackInfo.js
+import { controlPlayback } from '../spotify/spotifyAPI.js';
+
 let lastTrackId = null;
 let isPlaying = true;
+let accessToken = null;
 
+/**
+ * Render track information and playback controls
+ * @param {Object} trackData - Track data from Spotify API
+ */
 export function renderTrackInfo(trackData) {
+  // Store access token if not already stored
+  if (!accessToken) {
+    accessToken = localStorage.getItem('spotify_access_token');
+  }
+
   // Remove existing track info if present
   const existingInfo = document.getElementById('track-info');
   if (existingInfo) {
@@ -16,6 +28,11 @@ export function renderTrackInfo(trackData) {
   const albumImage = trackData.item?.album?.images?.[0]?.url || '';
   const trackId = trackData.item?.id || '';
   
+  // Update play state if available
+  if (trackData.is_playing !== undefined) {
+    isPlaying = trackData.is_playing;
+  }
+  
   // Update last track ID
   lastTrackId = trackId;
   
@@ -26,7 +43,7 @@ export function renderTrackInfo(trackData) {
   // Create HTML content
   container.innerHTML = `
     <div class="track-container">
-      <img src="${albumImage}" alt="Album Cover">
+      <img src="${albumImage}" alt="Album Cover for ${name}">
       <div class="text">
         <div class="title">${name}</div>
         <div class="artist">${artist}</div>
@@ -34,16 +51,16 @@ export function renderTrackInfo(trackData) {
       </div>
     </div>
     <div class="playback-controls">
-      <button class="control-button previous" aria-label="Previous">
+      <button class="control-button previous" aria-label="Previous Track">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polygon points="19 20 9 12 19 4 19 20"></polygon>
           <line x1="5" y1="4" x2="5" y2="20"></line>
         </svg>
       </button>
-      <button class="control-button play-pause" aria-label="Play/Pause">
+      <button class="control-button play-pause" aria-label="${isPlaying ? 'Pause' : 'Play'}">
         ${isPlaying ? getPauseIcon() : getPlayIcon()}
       </button>
-      <button class="control-button next" aria-label="Next">
+      <button class="control-button next" aria-label="Next Track">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polygon points="5 4 15 12 5 20 5 4"></polygon>
           <line x1="19" y1="4" x2="19" y2="20"></line>
@@ -65,14 +82,15 @@ export function renderTrackInfo(trackData) {
   }, 10);
 }
 
+/**
+ * Set up event listeners for playback control buttons
+ */
 function setupControlEvents() {
   // Play/Pause button
   const playPauseButton = document.querySelector('.control-button.play-pause');
   if (playPauseButton) {
     playPauseButton.addEventListener('click', () => {
-      isPlaying = !isPlaying;
       togglePlayback();
-      updatePlayPauseButton();
     });
   }
   
@@ -93,56 +111,73 @@ function setupControlEvents() {
   }
 }
 
+/**
+ * Update the play/pause button UI based on playback state
+ */
 function updatePlayPauseButton() {
   const button = document.querySelector('.control-button.play-pause');
   if (button) {
     button.innerHTML = isPlaying ? getPauseIcon() : getPlayIcon();
+    button.setAttribute('aria-label', isPlaying ? 'Pause' : 'Play');
   }
 }
 
-function togglePlayback() {
-  // Call the Spotify API to toggle playback
-  fetch('https://api.spotify.com/v1/me/player/' + (isPlaying ? 'pause' : 'play'), {
-    method: 'PUT',
-    headers: {
-      'Authorization': `Bearer ${getAccessToken()}`
-    }
-  }).catch(error => {
+/**
+ * Toggle playback (play/pause)
+ */
+async function togglePlayback() {
+  try {
+    // First, update UI to be responsive
+    isPlaying = !isPlaying;
+    updatePlayPauseButton();
+    
+    // Then call the API
+    await controlPlayback(isPlaying ? 'play' : 'pause', accessToken);
+  } catch (error) {
     console.error('Error toggling playback:', error);
+    // Revert UI if there was an error
+    isPlaying = !isPlaying;
+    updatePlayPauseButton();
     showPlaybackError('Could not control playback. Try again or refresh the page.');
-  });
+  }
 }
 
-function playNextTrack() {
-  fetch('https://api.spotify.com/v1/me/player/next', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${getAccessToken()}`
-    }
-  }).catch(error => {
+/**
+ * Play next track
+ */
+async function playNextTrack() {
+  try {
+    await controlPlayback('next', accessToken);
+    
+    // Assume we're playing after skipping
+    isPlaying = true;
+    updatePlayPauseButton();
+  } catch (error) {
     console.error('Error playing next track:', error);
     showPlaybackError('Could not play next track. Try again or refresh the page.');
-  });
+  }
 }
 
-function playPreviousTrack() {
-  fetch('https://api.spotify.com/v1/me/player/previous', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${getAccessToken()}`
-    }
-  }).catch(error => {
+/**
+ * Play previous track
+ */
+async function playPreviousTrack() {
+  try {
+    await controlPlayback('previous', accessToken);
+    
+    // Assume we're playing after going to previous
+    isPlaying = true;
+    updatePlayPauseButton();
+  } catch (error) {
     console.error('Error playing previous track:', error);
     showPlaybackError('Could not play previous track. Try again or refresh the page.');
-  });
+  }
 }
 
-function getAccessToken() {
-  // This is a simple implementation - you'll want to improve this
-  // by getting the token from your auth mechanism
-  return localStorage.getItem('spotify_access_token') || '';
-}
-
+/**
+ * Show error message
+ * @param {string} message - Error message to display
+ */
 function showPlaybackError(message) {
   const errorDiv = document.createElement('div');
   errorDiv.className = 'message-notification';
@@ -164,6 +199,10 @@ function showPlaybackError(message) {
   }, 5000);
 }
 
+/**
+ * Get play icon SVG
+ * @returns {string} - SVG HTML for play icon
+ */
 function getPlayIcon() {
   return `
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -172,6 +211,10 @@ function getPlayIcon() {
   `;
 }
 
+/**
+ * Get pause icon SVG
+ * @returns {string} - SVG HTML for pause icon
+ */
 function getPauseIcon() {
   return `
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
