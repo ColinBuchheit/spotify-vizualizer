@@ -1,5 +1,5 @@
-import { getPlayer } from '../spotify/playback.js';
-import { playTrack } from '../spotify/spotifyService.js';
+import { getPlayer } from '../spotify/Playback.js';
+import { playTrack } from '../spotify/SpotifyService.js';
 
 export function createPlaybackControls() {
   // Check if controls already exist

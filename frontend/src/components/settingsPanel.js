@@ -286,6 +286,7 @@ export function createSettingsPanel(options = {}) {
         flex-grow: 1;
         height: 6px;
         -webkit-appearance: none;
+        appearance: none;
         background: rgba(50, 50, 50, 0.6);
         border-radius: 3px;
         outline: none;
@@ -293,6 +294,7 @@ export function createSettingsPanel(options = {}) {
       
       .settings-slider::-webkit-slider-thumb {
         -webkit-appearance: none;
+        appearance: none;
         width: 16px;
         height: 16px;
         border-radius: 50%;
@@ -633,6 +635,38 @@ export function createSettingsPanel(options = {}) {
     if (callbacks.onChange && typeof callbacks.onChange === 'function') {
       callbacks.onChange(key, value, currentSettings);
     }
+  }
+
+  // Add this to settingsPanel.js
+function saveSettings() {
+    try {
+      localStorage.setItem('visualizer_settings', JSON.stringify(currentSettings));
+    } catch (e) {
+      console.warn('Could not save settings', e);
+    }
+  }
+  
+  function loadSettings() {
+    try {
+      const saved = localStorage.getItem('visualizer_settings');
+      if (saved) {
+        const parsedSettings = JSON.parse(saved);
+        // Validate settings before applying
+        const validatedSettings = {};
+        Object.keys(defaultSettings).forEach(key => {
+          if (key in parsedSettings && 
+              typeof parsedSettings[key] === typeof defaultSettings[key]) {
+            validatedSettings[key] = parsedSettings[key];
+          } else {
+            validatedSettings[key] = defaultSettings[key];
+          }
+        });
+        return validatedSettings;
+      }
+    } catch (e) {
+      console.warn('Could not load settings', e);
+    }
+    return defaultSettings;
   }
   
   // Show message

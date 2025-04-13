@@ -8,8 +8,8 @@ import { createPlaybackControls } from './components/playbackControls.js';
 import { createVisualizationSelector } from './components/visualizationSelector.js';
 import { createSettingsPanel } from './components/settingsPanel.js';
 import { extractAccessTokenFromUrl, saveAccessToken, getStoredAccessToken, clearToken } from './spotify/auth.js';
-import { loadSpotifySDK, getPlayer } from './spotify/playback.js';
-import { getCurrentTrack, transferPlaybackTo } from './spotify/spotifyService.js';
+import { loadSpotifySDK, getPlayer } from './spotify/Playback.js';
+import { getCurrentTrack, transferPlaybackTo } from './spotify/SpotifyService.js';
 
 // Application components
 let components = {
@@ -410,7 +410,31 @@ function showLoading(isLoading) {
 
 // Start the application
 window.addEventListener('DOMContentLoaded', init);
-
+function setupNetworkMonitoring() {
+    let isOnline = navigator.onLine;
+    
+    window.addEventListener('online', () => {
+      isOnline = true;
+      showNotification('Connection restored', 'success');
+      // Attempt to reconnect to Spotify
+      const player = getPlayer();
+      if (player) {
+        player.connect();
+      }
+      updateCurrentTrackInfo();
+    });
+    
+    window.addEventListener('offline', () => {
+      isOnline = false;
+      showNotification('You are offline. Limited functionality available.', 'warning');
+    });
+    
+    return {
+      isOnline: () => isOnline
+    };
+  }
+  
+  const networkStatus = setupNetworkMonitoring();
 // Export application API for debugging
 window.SpotifyVisualizer = {
   components,

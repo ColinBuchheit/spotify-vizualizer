@@ -9,18 +9,36 @@ function getHeaders() {
   };
 }
 
-export async function getCurrentTrack() {
-  const res = await fetch(`${API_BASE}/me/player/currently-playing`, {
-    headers: getHeaders()
-  });
-  if (res.status === 204) return null; // Nothing playing
-  const data = await res.json();
-  return {
-    name: data.item.name,
-    artist: data.item.artists.map(a => a.name).join(', '),
-    id: data.item.id
-  };
-}
+// In spotifyService.js - Add better error handling with retry logic
+export async function getCurrentTrack(maxRetries = 3) {
+    let retries = 0;
+    while (retries < maxRetries) {
+      try {
+        const res = await fetch(`${API_BASE}/me/player/currently-playing`, {
+          headers: getHeaders()
+        });
+        
+        if (res.status === 204) return null; // Nothing playing
+        if (res.status === 401) {
+          // Token expired, trigger refresh flow
+          throw new Error('AUTH_EXPIRED');
+        }
+        
+        const data = await res.json();
+        return {
+          name: data.item.name,
+          artist: data.item.artists.map(a => a.name).join(', '),
+          id: data.item.id
+        };
+      } catch (error) {
+        retries++;
+        if (error.message === 'AUTH_EXPIRED') throw error; // Bubble up auth errors
+        if (retries >= maxRetries) throw error;
+        // Exponential backoff
+        await new Promise(r => setTimeout(r, 1000 * Math.pow(2, retries)));
+      }
+    }
+  }
 
 export async function transferPlaybackTo(device_id) {
   await fetch(`${API_BASE}/me/player`, {

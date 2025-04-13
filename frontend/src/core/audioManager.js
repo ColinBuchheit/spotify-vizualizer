@@ -104,6 +104,40 @@ export function createAudioManager() {
         context.resume();
       }
     }
+
+    // In audioManager.js - Enhance the frequency data when direct access isn't possible
+function enhanceSimulatedAudioData(track) {
+    // Use track features from Spotify API to create more realistic visualization data
+    if (track && track.features) {
+      const { energy, danceability, acousticness, instrumentalness } = track.features;
+      
+      return (baseFreqData) => {
+        const enhancedData = new Uint8Array(baseFreqData.length);
+        
+        // Enhance bass frequencies based on energy
+        const bassMultiplier = 1 + energy * 0.5;
+        for (let i = 0; i < baseFreqData.length * 0.2; i++) {
+          enhancedData[i] = Math.min(255, baseFreqData[i] * bassMultiplier);
+        }
+        
+        // Enhance mid frequencies based on danceability
+        const midMultiplier = 1 + danceability * 0.3;
+        for (let i = Math.floor(baseFreqData.length * 0.2); i < baseFreqData.length * 0.6; i++) {
+          enhancedData[i] = Math.min(255, baseFreqData[i] * midMultiplier);
+        }
+        
+        // Enhance high frequencies based on acousticness (inverse relationship)
+        const highMultiplier = 1 + (1 - acousticness) * 0.4;
+        for (let i = Math.floor(baseFreqData.length * 0.6); i < baseFreqData.length; i++) {
+          enhancedData[i] = Math.min(255, baseFreqData[i] * highMultiplier);
+        }
+        
+        return enhancedData;
+      };
+    }
+    
+    return (baseFreqData) => baseFreqData;
+  }
     
     // Function to load audio from a URL
     async function loadAudioFromUrl(url) {

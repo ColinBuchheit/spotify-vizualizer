@@ -3,7 +3,7 @@ import { createAudioManager } from './AudioManager.js';
 import { createControls } from './Controls.js';
 import { createEnvironment } from './environment.js';
 import { createVisualizer } from './Visualizer.js';
-import { getPlayer } from '../spotify/playback.js';
+import { getPlayer } from '../spotify/Playback.js';
 
 let scene, camera, renderer, controls, visualizer, audioManager, environment;
 let lastTime = 0;
@@ -147,6 +147,29 @@ function setupFpsCounter() {
     document.head.appendChild(script);
   }
 }
+
+// Add to core/App.js
+function detectDeviceCapabilities() {
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  const isLowEndDevice = isMobile || navigator.hardwareConcurrency <= 4;
+  
+  // Check if device supports WebGL2
+  const canvas = document.createElement('canvas');
+  const gl = canvas.getContext('webgl2');
+  const supportsWebGL2 = !!gl;
+  
+  return {
+    isMobile,
+    isLowEndDevice,
+    supportsWebGL2,
+    recommendedQuality: isLowEndDevice ? 'low' : 'high',
+    maxParticleCount: isLowEndDevice ? 1000 : 5000
+  };
+}
+
+// Use these capabilities to set initial settings
+const deviceCapabilities = detectDeviceCapabilities();
+appSettings.quality = deviceCapabilities.recommendedQuality;
 
 // Handle settings changes
 function handleSettingsChange(event) {
