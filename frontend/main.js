@@ -1,13 +1,13 @@
-// Enhanced main entry point using the improved components
+// Enhanced main entry point with improved device detection
 import './src/visualizer.css';
-import { VisualizerManager } from './src/three/VisualizerManager.js';
+import { SpotifyVisualizer } from './src/spotify/SpotifyVisualizer.js';
 import { getAccessTokenFromUrl, isAuthenticated, redirectToLogin } from './src/auth/handleAuth.js';
 
-// Global visualizer manager instance
-let visualizerManager = null;
+// Global instance
+let spotifyVisualizer = null;
 
-document.addEventListener('DOMContentLoaded', () => {
-  // Detect WebGL support first
+document.addEventListener('DOMContentLoaded', async () => {
+  // Check WebGL support first
   if (!hasWebGLSupport()) {
     showError('Your browser does not support WebGL, which is required for this visualizer.');
     return;
@@ -18,15 +18,12 @@ document.addEventListener('DOMContentLoaded', () => {
   loading.className = 'loading-spinner';
   document.body.appendChild(loading);
   
-  // Check if we received tokens from authentication or have valid stored tokens
+  // Check if user is authenticated
   const accessToken = getAccessTokenFromUrl();
 
-  if (accessToken) {
-    // User is authenticated, show visualizer
-    showVisualizer(accessToken);
-  } else if (isAuthenticated()) {
-    // User has a stored valid token
-    showVisualizer(localStorage.getItem('spotify_access_token'));
+  if (accessToken || isAuthenticated()) {
+    // User is authenticated, initialize visualizer
+    await initializeVisualizer();
   } else {
     // User is not authenticated, show login screen
     showLoginScreen();
@@ -37,54 +34,53 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
   
-  // Add visualization mode controls
-  setupVisualizationControls();
+  // Add window unload handler
+  window.addEventListener('beforeunload', () => {
+    if (spotifyVisualizer) {
+      spotifyVisualizer.dispose();
+    }
+  });
   
-  // Add window resize handler
-  window.addEventListener('resize', handleWindowResize);
+  // Add special handler for Spotify app redirection
+  window.addEventListener('focus', () => {
+    // This handles cases where user opened Spotify app and comes back
+    if (spotifyVisualizer && spotifyVisualizer.deviceStatus && !spotifyVisualizer.deviceStatus.active) {
+      spotifyVisualizer.pollForTrackChanges();
+    }
+  });
 });
 
 /**
- * Show the visualizer and initialize it with the access token
- * @param {string} accessToken - Spotify access token
+ * Initialize the Spotify visualizer
  */
-function showVisualizer(accessToken) {
-  // Hide login screen, show app
-  const loginScreen = document.getElementById('login-screen');
-  const app = document.getElementById('app');
-  
-  if (loginScreen) loginScreen.style.display = 'none';
-  if (app) app.style.display = 'block';
-  
-  // Initialize visualizer manager
-  visualizerManager = new VisualizerManager();
-  
-  visualizerManager.initialize(app, accessToken)
-    .catch(error => {
-      console.error('Error initializing visualizer:', error);
-      
-      // Try to get a more specific error message
-      let errorMessage = 'Failed to initialize visualizer. Please try again.';
-      
-      if (error.message) {
-        if (error.message.includes('authentication') || error.message.includes('token')) {
-          errorMessage = 'Authentication failed. Please login again.';
-        } else if (error.message.includes('premium')) {
-          errorMessage = 'Spotify Premium is required for this feature.';
-        } else if (error.message.includes('WebGL')) {
-          errorMessage = 'Your browser does not support WebGL, which is required for this application.';
-        }
-      }
-      
-      showError(errorMessage);
-    })
-    .finally(() => {
-      // Remove loading indicator when done
-      const loading = document.querySelector('.loading-spinner');
-      if (loading && document.body.contains(loading)) {
-        document.body.removeChild(loading);
-      }
-    });
+async function initializeVisualizer() {
+  try {
+    // Hide login screen, show app
+    const loginScreen = document.getElementById('login-screen');
+    const app = document.getElementById('app');
+    
+    if (loginScreen) loginScreen.style.display = 'none';
+    if (app) app.style.display = 'block';
+    
+    // Create and initialize visualizer
+    spotifyVisualizer = new SpotifyVisualizer();
+    
+    const success = await spotifyVisualizer.initialize(app);
+    
+    if (!success) {
+      console.error('Failed to initialize visualizer');
+      showError('Failed to initialize visualizer. Please try refreshing the page.');
+    }
+  } catch (error) {
+    console.error('Error initializing visualizer:', error);
+    showError('An error occurred while initializing the visualizer. Please try again.');
+  } finally {
+    // Remove loading indicator
+    const loading = document.querySelector('.loading-spinner');
+    if (loading && document.body.contains(loading)) {
+      document.body.removeChild(loading);
+    }
+  }
 }
 
 /**
@@ -96,6 +92,9 @@ function showLoginScreen() {
   
   if (loginScreen) loginScreen.style.display = 'flex';
   if (app) app.style.display = 'none';
+  
+  // Enhanced login screen with more helpful information
+  enhanceLoginScreen();
   
   // Add event listener to the connect button
   const connectButton = document.getElementById('connect-button');
@@ -121,6 +120,162 @@ function showLoginScreen() {
 }
 
 /**
+ * Enhance login screen with additional information
+ */
+function enhanceLoginScreen() {
+  const loginScreen = document.getElementById('login-screen');
+  if (!loginScreen) return;
+  
+  // Add Premium requirement notice
+  const premiumNotice = document.createElement('div');
+  premiumNotice.className = 'premium-notice';
+  premiumNotice.innerHTML = `
+    <div class="premium-badge">
+      <span>Premium Required</span>
+    </div>
+    <p class="premium-text">
+      This visualizer requires a Spotify Premium account to function properly.
+    </p>
+  `;
+  
+  // Add steps section
+  const stepsSection = document.createElement('div');
+  stepsSection.className = 'steps-section';
+  stepsSection.innerHTML = `
+    <h3>How It Works</h3>
+    <div class="steps">
+      <div class="step">
+        <div class="step-number">1</div>
+        <p>Connect your Spotify Premium account</p>
+      </div>
+      <div class="step">
+        <div class="step-number">2</div>
+        <p>Select "Spotify Visualizer" as your playback device in the Spotify app</p>
+      </div>
+      <div class="step">
+        <div class="step-number">3</div>
+        <p>Play music and enjoy the synchronized visuals!</p>
+      </div>
+    </div>
+  `;
+  
+  // Find a good place to insert these elements
+  const features = loginScreen.querySelector('.features');
+  if (features) {
+    loginScreen.insertBefore(premiumNotice, features);
+    loginScreen.insertBefore(stepsSection, loginScreen.querySelector('.footer'));
+  } else {
+    loginScreen.appendChild(premiumNotice);
+    loginScreen.appendChild(stepsSection);
+  }
+  
+  // Add styles
+  const style = document.createElement('style');
+  style.textContent = `
+    .premium-notice {
+      background-color: rgba(0, 0, 0, 0.3);
+      padding: 15px 20px;
+      border-radius: 10px;
+      margin: 10px auto 20px;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      max-width: 600px;
+    }
+    
+    .premium-badge {
+      background-color: #1DB954;
+      padding: 6px 10px;
+      border-radius: 20px;
+      font-weight: 600;
+      font-size: 12px;
+      box-shadow: 0 3px 10px rgba(29, 185, 84, 0.3);
+    }
+    
+    .premium-text {
+      margin: 0;
+      font-size: 14px;
+      opacity: 0.9;
+    }
+    
+    .steps-section {
+      max-width: 800px;
+      margin: 30px auto;
+      text-align: center;
+    }
+    
+    .steps-section h3 {
+      font-size: 1.5rem;
+      margin-bottom: 20px;
+      color: #1DB954;
+    }
+    
+    .steps {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    
+    .step {
+      background-color: rgba(255, 255, 255, 0.08);
+      padding: 20px;
+      border-radius: 12px;
+      width: 220px;
+      text-align: center;
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    
+    .step:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+      background-color: rgba(29, 185, 84, 0.1);
+    }
+    
+    .step-number {
+      width: 40px;
+      height: 40px;
+      background-color: #1DB954;
+      border-radius: 50%;
+      margin: 0 auto 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 18px;
+      box-shadow: 0 5px 15px rgba(29, 185, 84, 0.3);
+    }
+    
+    .step p {
+      font-size: 14px;
+      line-height: 1.5;
+      margin: 0;
+    }
+    
+    @media (max-width: 768px) {
+      .premium-notice {
+        flex-direction: column;
+        text-align: center;
+        padding: 15px;
+      }
+      
+      .steps {
+        flex-direction: column;
+        align-items: center;
+      }
+      
+      .step {
+        width: 90%;
+        max-width: 280px;
+      }
+    }
+  `;
+  
+  document.head.appendChild(style);
+}
+
+/**
  * Show error message on login screen
  * @param {string} error - Error code
  */
@@ -137,6 +292,9 @@ function showErrorMessage(error) {
     case 'authentication_failed':
       message = 'Authentication failed. Please try again.';
       break;
+    case 'premium_required':
+      message = 'Spotify Premium is required for this visualizer. Please upgrade your account.';
+      break;
     default:
       message = `Authentication error: ${error}`;
   }
@@ -146,7 +304,7 @@ function showErrorMessage(error) {
 }
 
 /**
- * Show error message
+ * Show error message in overlay
  * @param {string} message - Error message
  */
 function showError(message) {
@@ -201,65 +359,3 @@ function hasWebGLSupport() {
     return false;
   }
 }
-
-/**
- * Setup visualization mode controls
- */
-function setupVisualizationControls() {
-  // Create visualization controls
-  const controls = document.createElement('div');
-  controls.id = 'visualization-controls';
-  controls.innerHTML = `
-    <div class="viz-buttons">
-      <button class="viz-button active" data-mode="orbital">Orbital</button>
-      <button class="viz-button" data-mode="waveform">Waveform</button>
-      <button class="viz-button" data-mode="nebula">Nebula</button>
-      <button class="viz-button" data-mode="geometric">Geometric</button>
-    </div>
-  `;
-  
-  document.body.appendChild(controls);
-  
-  // Add event listeners to buttons
-  const buttons = controls.querySelectorAll('.viz-button');
-  buttons.forEach(button => {
-    button.addEventListener('click', (e) => {
-      // Update active state
-      buttons.forEach(btn => btn.classList.remove('active'));
-      e.target.classList.add('active');
-      
-      // Change visualization mode
-      const mode = e.target.getAttribute('data-mode');
-      if (visualizerManager) {
-        visualizerManager.setVisualizationMode(mode);
-      }
-    });
-  });
-  
-  // Hide controls initially, show when visualizer is active
-  controls.style.display = 'none';
-  
-  // Show controls when visualizer is initialized
-  const showControlsInterval = setInterval(() => {
-    if (visualizerManager && visualizerManager.initialized) {
-      controls.style.display = 'block';
-      clearInterval(showControlsInterval);
-    }
-  }, 1000);
-}
-
-/**
- * Handle window resize
- */
-function handleWindowResize() {
-  if (visualizerManager) {
-    visualizerManager.onWindowResize();
-  }
-}
-
-// Handle page unload
-window.addEventListener('beforeunload', () => {
-  if (visualizerManager) {
-    visualizerManager.dispose();
-  }
-});
