@@ -1,4 +1,4 @@
-// Configuration and constants
+
 const CONFIG = {
     // Spotify API
     clientId: import.meta.env.VITE_SPOTIFY_CLIENT_ID,
@@ -21,4 +21,9 @@ const CONFIG = {
     }
 };
 
+// Export for ES modules
 export default CONFIG;
+
+// Also make available globally
+window.CONFIG = CONFIG;
+console.log('Configuration loaded');

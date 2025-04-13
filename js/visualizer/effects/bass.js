@@ -10,8 +10,8 @@ class BassEffect {
         // Create bass visualization - pulsing spheres
         const geometry = new THREE.SphereGeometry(50, 32, 32);
         const material = new THREE.MeshPhongMaterial({
-            color: CONFIG.visualizer.bassColor,
-            emissive: CONFIG.visualizer.bassColor,
+            color: window.CONFIG.visualizer.bassColor,
+            emissive: window.CONFIG.visualizer.bassColor,
             emissiveIntensity: 0.5,
             transparent: true,
             opacity: 0.8
@@ -43,3 +43,7 @@ class BassEffect {
         });
     }
 }
+
+// Export to window
+window.BassEffect = BassEffect;
+console.log('BassEffect loaded');

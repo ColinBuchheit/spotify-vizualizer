@@ -32,21 +32,56 @@
         </div>
     </div>
 
-    <!-- Third-party libraries -->
-    <script src="lib/three.min.js"></script>
+    <!-- Load Three.js first -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r154/three.min.js"></script>
+    
+    <!-- Load config first to set up environment -->
+    <script type="module" src="js/config.js"></script>
+    
+    <!-- Spotify SDK init and player -->
+    <script src="js/spotify-init.js"></script>
     <script src="https://sdk.scdn.co/spotify-player.js"></script>
     
-    <!-- Application scripts -->
-    <script src="js/config.js"></script>
+    <!-- Load auth module first -->
     <script src="js/auth/spotify-auth.js"></script>
-    <script src="js/audio/analyzer.js"></script>
-    <script src="js/audio/spotify-api.js"></script>
-    <script src="js/visualizer/scene.js"></script>
-    <script src="js/visualizer/renderer.js"></script>
+    
+    <!-- Load visualizer modules -->
     <script src="js/visualizer/effects/bass.js"></script>
     <script src="js/visualizer/effects/treble.js"></script>
     <script src="js/visualizer/effects/volume.js"></script>
+    <script src="js/visualizer/renderer.js"></script>
+    <script src="js/visualizer/scene.js"></script>
+    
+    <!-- Load audio modules -->
+    <script src="js/audio/analyzer.js"></script>
+    <script src="js/audio/spotify-api.js"></script>
+    
+    <!-- Load utils -->
     <script src="js/utils/helpers.js"></script>
-    <script src="js/main.js"></script>
+    
+    <!-- Then load the main app -->
+    <script type="module">
+        // Wait for DOM to be fully loaded
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM fully loaded and parsed');
+            
+            // Initialize visualizer scene when DOM is ready
+            if (window.VisualizerScene) {
+                console.log('Initializing VisualizerScene');
+                const visualizer = new window.VisualizerScene();
+            } else {
+                console.error('VisualizerScene not found');
+            }
+            
+            // Add click handler to ensure audio context starts
+            document.addEventListener('click', function() {
+                if (window.audioAnalyzer && 
+                    window.audioAnalyzer.audioContext && 
+                    window.audioAnalyzer.audioContext.state === 'suspended') {
+                    window.audioAnalyzer.audioContext.resume();
+                }
+            }, { once: true });
+        });
+    </script>
 </body>
 </html>

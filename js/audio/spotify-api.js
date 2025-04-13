@@ -171,6 +171,15 @@ class SpotifyAPI {
 }
 
 // Initialize API when accessToken is available
-if (spotifyAuth && spotifyAuth.accessToken) {
-    window.spotifyApi = new SpotifyAPI(spotifyAuth.accessToken);
+if (window.spotifyAuth && window.spotifyAuth.accessToken) {
+    window.spotifyApi = new SpotifyAPI(window.spotifyAuth.accessToken);
+} else {
+    // Initialize with null, will update later when auth is complete
+    window.spotifyApi = new SpotifyAPI(null);
+    
+    // Check for token in localStorage
+    const token = localStorage.getItem('spotify_access_token');
+    if (token) {
+        window.spotifyApi.setAccessToken(token);
+    }
 }

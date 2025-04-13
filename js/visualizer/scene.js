@@ -20,7 +20,7 @@ class VisualizerScene {
         
         // Create camera
         this.camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 2000);
-        this.camera.position.z = CONFIG.visualizer.cameraDistance;
+        this.camera.position.z = window.CONFIG.visualizer.cameraDistance;
         
         // Create renderer
         this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -40,9 +40,9 @@ class VisualizerScene {
         this.scene.add(directionalLight);
         
         // Create visual effects
-        this.bassEffect = new BassEffect(this.scene);
-        this.trebleEffect = new TrebleEffect(this.scene);
-        this.volumeEffect = new VolumeEffect(this.scene);
+        this.bassEffect = new window.BassEffect(this.scene);
+        this.trebleEffect = new window.TrebleEffect(this.scene);
+        this.volumeEffect = new window.VolumeEffect(this.scene);
     }
     
     onWindowResize() {
@@ -71,9 +71,12 @@ class VisualizerScene {
         }
         
         // Rotate camera
-        this.camera.rotation.y += CONFIG.visualizer.rotationSpeed;
+        this.camera.rotation.y += window.CONFIG.visualizer.rotationSpeed;
         
         // Render scene
         this.renderer.render(this.scene, this.camera);
     }
 }
+
+// Export to window
+window.VisualizerScene = VisualizerScene;

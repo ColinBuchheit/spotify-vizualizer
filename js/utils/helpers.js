@@ -126,12 +126,12 @@ function hslToRgb(h, s, l) {
             return p;
         };
         
-        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-        const p = 2 * l - q;
+        const qValue = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        const p = 2 * l - qValue;
         
-        r = hue2rgb(p, q, h + 1/3);
-        g = hue2rgb(p, q, h);
-        b = hue2rgb(p, q, h - 1/3);
+        r = hue2rgb(p, qValue, h + 1/3);
+        g = hue2rgb(p, qValue, h);
+        b = hue2rgb(p, qValue, h - 1/3);
     }
     
     return {
@@ -255,3 +255,5 @@ window.helpers = {
     handleError,
     getDominantColor
 };
+
+console.log('Helpers loaded');
