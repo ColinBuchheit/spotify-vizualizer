@@ -1,8 +1,8 @@
-
+// js/config.js
 const CONFIG = {
     // Spotify API
-    clientId: import.meta.env.VITE_SPOTIFY_CLIENT_ID,
-    redirectUri: import.meta.env.VITE_SPOTIFY_REDIRECT_URI,
+    clientId: '12f4f9c6974f46fb9196c2e337396d79', // Using the value from your .env file
+    redirectUri: 'http://127.0.0.1:5173/callback', // Using the value from your .env file
     scopes: [
         'streaming', 
         'user-read-email', 
@@ -21,9 +21,6 @@ const CONFIG = {
     }
 };
 
-// Export for ES modules
-export default CONFIG;
-
-// Also make available globally
+// Make available globally
 window.CONFIG = CONFIG;
 console.log('Configuration loaded');

@@ -8,6 +8,12 @@ class TrebleEffect {
     }
     
     init() {
+        // Check that THREE is available
+        if (typeof THREE === 'undefined') {
+            console.error('THREE is not defined in TrebleEffect');
+            return;
+        }
+        
         // Create treble visualization - particle system
         const particleCount = 1000;
         const particles = new THREE.BufferGeometry();
@@ -27,7 +33,7 @@ class TrebleEffect {
             positions[i * 3 + 2] = radius * Math.cos(phi);
             
             // Color
-            const color = new THREE.Color(CONFIG.visualizer.trebleColor);
+            const color = new THREE.Color(window.CONFIG ? window.CONFIG.visualizer.trebleColor : 0x1ED760);
             colors[i * 3] = color.r;
             colors[i * 3 + 1] = color.g;
             colors[i * 3 + 2] = color.b;
@@ -89,3 +95,7 @@ class TrebleEffect {
         this.particles.attributes.position.needsUpdate = true;
     }
 }
+
+// Export to window
+window.TrebleEffect = TrebleEffect;
+console.log('TrebleEffect loaded');

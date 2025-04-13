@@ -7,13 +7,19 @@ class VolumeEffect {
     }
     
     init() {
+        // Check that THREE is available
+        if (typeof THREE === 'undefined') {
+            console.error('THREE is not defined in VolumeEffect');
+            return;
+        }
+        
         // Create volume visualization - concentric rings
         for (let i = 0; i < 5; i++) {
             const radius = 100 + i * 40;
             const geometry = new THREE.TorusGeometry(radius, 5, 16, 100);
             const material = new THREE.MeshPhongMaterial({
-                color: CONFIG.visualizer.volumeColor,
-                emissive: CONFIG.visualizer.volumeColor,
+                color: window.CONFIG ? window.CONFIG.visualizer.volumeColor : 0xFFFFFF,
+                emissive: window.CONFIG ? window.CONFIG.visualizer.volumeColor : 0xFFFFFF,
                 emissiveIntensity: 0.3,
                 transparent: true,
                 opacity: 0.6 - i * 0.1
@@ -35,7 +41,8 @@ class VolumeEffect {
             
             // Scale ring thickness with volume
             const thickness = 2 + volumeValue * 10;
-            ring.geometry.parameters.tubularSegments = thickness;
+            // Note: We can't directly modify tubularSegments after creation
+            // So we'll just scale the ring instead
             
             // Pulsate radius based on volume
             const radiusScale = 1 + volumeValue * 0.3 * Math.sin(Date.now() * 0.001 * (index + 1) * 0.3);
@@ -46,3 +53,7 @@ class VolumeEffect {
         });
     }
 }
+
+// Export to window
+window.VolumeEffect = VolumeEffect;
+console.log('VolumeEffect loaded');

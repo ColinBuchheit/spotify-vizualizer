@@ -1,5 +1,11 @@
 class VisualizerScene {
     constructor() {
+        // Ensure THREE is defined and available
+        if (typeof window.THREE === 'undefined') {
+            console.error('THREE is not defined! Make sure Three.js is loaded.');
+            return;
+        }
+        
         this.scene = new THREE.Scene();
         this.camera = null;
         this.renderer = null;
@@ -15,12 +21,17 @@ class VisualizerScene {
     init() {
         // Get container dimensions
         const container = document.getElementById('visualizer-container');
+        if (!container) {
+            console.error('Container element not found');
+            return;
+        }
+        
         const width = container.clientWidth;
         const height = container.clientHeight;
         
         // Create camera
         this.camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 2000);
-        this.camera.position.z = window.CONFIG.visualizer.cameraDistance;
+        this.camera.position.z = window.CONFIG ? window.CONFIG.visualizer.cameraDistance : 1000;
         
         // Create renderer
         this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -40,9 +51,26 @@ class VisualizerScene {
         this.scene.add(directionalLight);
         
         // Create visual effects
-        this.bassEffect = new window.BassEffect(this.scene);
-        this.trebleEffect = new window.TrebleEffect(this.scene);
-        this.volumeEffect = new window.VolumeEffect(this.scene);
+        if (window.BassEffect) {
+            this.bassEffect = new window.BassEffect(this.scene);
+            console.log('BassEffect initialized');
+        } else {
+            console.error('BassEffect not found');
+        }
+        
+        if (window.TrebleEffect) {
+            this.trebleEffect = new window.TrebleEffect(this.scene);
+            console.log('TrebleEffect initialized');
+        } else {
+            console.error('TrebleEffect not found');
+        }
+        
+        if (window.VolumeEffect) {
+            this.volumeEffect = new window.VolumeEffect(this.scene);
+            console.log('VolumeEffect initialized');
+        } else {
+            console.error('VolumeEffect not found');
+        }
     }
     
     onWindowResize() {
@@ -64,19 +92,24 @@ class VisualizerScene {
             
             if (audioData) {
                 // Update visual effects
-                this.bassEffect.update(audioData.bass);
-                this.trebleEffect.update(audioData.treble);
-                this.volumeEffect.update(audioData.volume);
+                if (this.bassEffect) this.bassEffect.update(audioData.bass);
+                if (this.trebleEffect) this.trebleEffect.update(audioData.treble);
+                if (this.volumeEffect) this.volumeEffect.update(audioData.volume);
             }
         }
         
         // Rotate camera
-        this.camera.rotation.y += window.CONFIG.visualizer.rotationSpeed;
+        if (this.camera && window.CONFIG) {
+            this.camera.rotation.y += window.CONFIG.visualizer.rotationSpeed;
+        }
         
         // Render scene
-        this.renderer.render(this.scene, this.camera);
+        if (this.renderer && this.scene && this.camera) {
+            this.renderer.render(this.scene, this.camera);
+        }
     }
 }
 
 // Export to window
 window.VisualizerScene = VisualizerScene;
+console.log('VisualizerScene loaded');

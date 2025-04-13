@@ -7,11 +7,17 @@ class BassEffect {
     }
     
     init() {
+        // Check that THREE is available
+        if (typeof THREE === 'undefined') {
+            console.error('THREE is not defined in BassEffect');
+            return;
+        }
+        
         // Create bass visualization - pulsing spheres
         const geometry = new THREE.SphereGeometry(50, 32, 32);
         const material = new THREE.MeshPhongMaterial({
-            color: window.CONFIG.visualizer.bassColor,
-            emissive: window.CONFIG.visualizer.bassColor,
+            color: window.CONFIG ? window.CONFIG.visualizer.bassColor : 0x1DB954,
+            emissive: window.CONFIG ? window.CONFIG.visualizer.bassColor : 0x1DB954,
             emissiveIntensity: 0.5,
             transparent: true,
             opacity: 0.8

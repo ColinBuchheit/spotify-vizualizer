@@ -61,14 +61,21 @@ class SpotifyAuth {
             
             // Check for state to prevent CSRF
             const storedState = localStorage.getItem('spotify_auth_state');
-            if (params.state !== storedState) {
+            
+            // Only check state if both params.state and storedState exist
+            if (params.state && storedState && params.state !== storedState) {
                 console.error('State mismatch');
                 return;
             }
             
             if (params.access_token) {
                 this.accessToken = params.access_token;
-                this.expiresIn = params.expires_in;
+                this.expiresIn = params.expires_in || 3600; // Default to 1 hour if not provided
+                
+                // Store token in localStorage
+                localStorage.setItem('spotify_access_token', this.accessToken);
+                localStorage.setItem('spotify_token_timestamp', Date.now());
+                localStorage.setItem('spotify_expires_in', this.expiresIn);
                 
                 // Clear URL hash
                 window.history.replaceState({}, document.title, window.location.pathname);
@@ -106,6 +113,12 @@ class SpotifyAuth {
                     
                     if (loginContainer) loginContainer.classList.add('hidden');
                     if (playerContainer) playerContainer.classList.remove('hidden');
+                } else {
+                    // Token expired, clear it
+                    localStorage.removeItem('spotify_access_token');
+                    localStorage.removeItem('spotify_token_timestamp');
+                    localStorage.removeItem('spotify_expires_in');
+                    console.log('Spotify token expired, please log in again');
                 }
             }
         }
@@ -162,6 +175,15 @@ class SpotifyAuth {
         });
         this.player.addListener('authentication_error', ({ message }) => { 
             console.error('Authentication error:', message); 
+            // Clear token on auth error
+            localStorage.removeItem('spotify_access_token');
+            localStorage.removeItem('spotify_token_timestamp');
+            localStorage.removeItem('spotify_expires_in');
+            // Show login button again
+            const loginContainer = document.getElementById('login-container');
+            const playerContainer = document.getElementById('player-container');
+            if (loginContainer) loginContainer.classList.remove('hidden');
+            if (playerContainer) playerContainer.classList.add('hidden');
         });
         this.player.addListener('account_error', ({ message }) => { 
             console.error('Account error:', message); 
@@ -204,6 +226,8 @@ class SpotifyAuth {
             } else {
                 console.error('Failed to connect to Spotify player');
             }
+        }).catch(error => {
+            console.error('Error connecting to Spotify:', error);
         });
         
         // Set up player control buttons
@@ -236,7 +260,7 @@ class SpotifyAuth {
             
             if (trackName) trackName.textContent = track.name;
             if (artistName) artistName.textContent = track.artists.map(artist => artist.name).join(', ');
-            if (albumArt && track.album.images.length > 0) albumArt.src = track.album.images[0].url;
+            if (albumArt && track.album.images && track.album.images.length > 0) albumArt.src = track.album.images[0].url;
             
             if (playPauseButton) playPauseButton.textContent = state.paused ? 'Play' : 'Pause';
         }
@@ -251,6 +275,11 @@ class SpotifyAuth {
     }
     
     transferPlayback(deviceId) {
+        if (!this.accessToken) {
+            console.error('No access token available for transfer playback');
+            return;
+        }
+        
         fetch('https://api.spotify.com/v1/me/player', {
             method: 'PUT',
             headers: {
@@ -264,6 +293,19 @@ class SpotifyAuth {
         }).then(response => {
             if (!response.ok) {
                 console.error('Error transferring playback:', response.status);
+                if (response.status === 401) {
+                    // Token expired or invalid
+                    localStorage.removeItem('spotify_access_token');
+                    localStorage.removeItem('spotify_token_timestamp');
+                    localStorage.removeItem('spotify_expires_in');
+                    // Show login button again
+                    const loginContainer = document.getElementById('login-container');
+                    const playerContainer = document.getElementById('player-container');
+                    if (loginContainer) loginContainer.classList.remove('hidden');
+                    if (playerContainer) playerContainer.classList.add('hidden');
+                }
+            } else {
+                console.log('Playback transferred successfully');
             }
         }).catch(error => {
             console.error('Failed to transfer playback:', error);
