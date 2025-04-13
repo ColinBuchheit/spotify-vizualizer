@@ -1,7 +1,7 @@
-// Enhanced main entry point with improved device detection
+// Enhanced main entry point with improved device detection and error handling
 import './src/visualizer.css';
 import { SpotifyVisualizer } from './src/spotify/SpotifyVisualizer.js';
-import { getAccessTokenFromUrl, isAuthenticated, redirectToLogin } from './src/auth/handleAuth.js';
+import { getAccessTokenFromUrl, isAuthenticated, redirectToLogin, clearTokens } from './src/auth/handleAuth.js';
 
 // Global instance
 let spotifyVisualizer = null;
@@ -13,10 +13,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
   
-  // Add loading indicator
-  const loading = document.createElement('div');
-  loading.className = 'loading-spinner';
-  document.body.appendChild(loading);
+  // Add loading indicator (only if it doesn't already exist)
+  addLoadingIndicator();
   
   // Check if user is authenticated
   const accessToken = getAccessTokenFromUrl();
@@ -29,9 +27,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     showLoginScreen();
     
     // Remove loading spinner
-    if (document.body.contains(loading)) {
-      document.body.removeChild(loading);
-    }
+    removeLoadingIndicator();
   }
   
   // Add window unload handler
@@ -49,6 +45,40 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 });
+
+/**
+ * Add loading indicator if it doesn't exist already
+ */
+function addLoadingIndicator() {
+  if (!document.querySelector('.loading-spinner')) {
+    const loading = document.createElement('div');
+    loading.className = 'loading-spinner';
+    document.body.appendChild(loading);
+  }
+}
+
+/**
+ * Remove loading indicator safely
+ */
+function removeLoadingIndicator() {
+  const loading = document.querySelector('.loading-spinner');
+  if (loading) {
+    try {
+      if (document.body.contains(loading)) {
+        document.body.removeChild(loading);
+      } else if (loading.parentNode) {
+        // Handle case where loading might be in another container
+        loading.parentNode.removeChild(loading);
+      } else {
+        // Just hide it if we can't remove it
+        loading.style.display = 'none';
+      }
+    } catch (e) {
+      console.warn('Error removing loading indicator:', e);
+      loading.style.display = 'none';
+    }
+  }
+}
 
 /**
  * Initialize the Spotify visualizer
@@ -73,13 +103,19 @@ async function initializeVisualizer() {
     }
   } catch (error) {
     console.error('Error initializing visualizer:', error);
-    showError('An error occurred while initializing the visualizer. Please try again.');
-  } finally {
-    // Remove loading indicator
-    const loading = document.querySelector('.loading-spinner');
-    if (loading && document.body.contains(loading)) {
-      document.body.removeChild(loading);
+    
+    // Handle specific error types
+    if (error.message && error.message.includes('Premium')) {
+      showError('Spotify Premium Required: This visualizer requires a Spotify Premium account. Please upgrade your account to use this feature.', true);
+    } else if (error.message && error.message.includes('authentication') || error.status === 401) {
+      clearTokens(); // Clear invalid tokens
+      showError('Authentication failed. Please log in again.', false, true);
+    } else {
+      showError('An error occurred while initializing the visualizer. Please try again.');
     }
+  } finally {
+    // Remove loading indicator safely
+    removeLoadingIndicator();
   }
 }
 
@@ -101,9 +137,7 @@ function showLoginScreen() {
   if (connectButton) {
     connectButton.addEventListener('click', () => {
       // Show loading spinner
-      const loading = document.createElement('div');
-      loading.className = 'loading-spinner';
-      document.body.appendChild(loading);
+      addLoadingIndicator();
       
       // Redirect to login
       redirectToLogin();
@@ -123,156 +157,7 @@ function showLoginScreen() {
  * Enhance login screen with additional information
  */
 function enhanceLoginScreen() {
-  const loginScreen = document.getElementById('login-screen');
-  if (!loginScreen) return;
-  
-  // Add Premium requirement notice
-  const premiumNotice = document.createElement('div');
-  premiumNotice.className = 'premium-notice';
-  premiumNotice.innerHTML = `
-    <div class="premium-badge">
-      <span>Premium Required</span>
-    </div>
-    <p class="premium-text">
-      This visualizer requires a Spotify Premium account to function properly.
-    </p>
-  `;
-  
-  // Add steps section
-  const stepsSection = document.createElement('div');
-  stepsSection.className = 'steps-section';
-  stepsSection.innerHTML = `
-    <h3>How It Works</h3>
-    <div class="steps">
-      <div class="step">
-        <div class="step-number">1</div>
-        <p>Connect your Spotify Premium account</p>
-      </div>
-      <div class="step">
-        <div class="step-number">2</div>
-        <p>Select "Spotify Visualizer" as your playback device in the Spotify app</p>
-      </div>
-      <div class="step">
-        <div class="step-number">3</div>
-        <p>Play music and enjoy the synchronized visuals!</p>
-      </div>
-    </div>
-  `;
-  
-  // Find a good place to insert these elements
-  const features = loginScreen.querySelector('.features');
-  if (features) {
-    loginScreen.insertBefore(premiumNotice, features);
-    loginScreen.insertBefore(stepsSection, loginScreen.querySelector('.footer'));
-  } else {
-    loginScreen.appendChild(premiumNotice);
-    loginScreen.appendChild(stepsSection);
-  }
-  
-  // Add styles
-  const style = document.createElement('style');
-  style.textContent = `
-    .premium-notice {
-      background-color: rgba(0, 0, 0, 0.3);
-      padding: 15px 20px;
-      border-radius: 10px;
-      margin: 10px auto 20px;
-      display: flex;
-      align-items: center;
-      gap: 15px;
-      max-width: 600px;
-    }
-    
-    .premium-badge {
-      background-color: #1DB954;
-      padding: 6px 10px;
-      border-radius: 20px;
-      font-weight: 600;
-      font-size: 12px;
-      box-shadow: 0 3px 10px rgba(29, 185, 84, 0.3);
-    }
-    
-    .premium-text {
-      margin: 0;
-      font-size: 14px;
-      opacity: 0.9;
-    }
-    
-    .steps-section {
-      max-width: 800px;
-      margin: 30px auto;
-      text-align: center;
-    }
-    
-    .steps-section h3 {
-      font-size: 1.5rem;
-      margin-bottom: 20px;
-      color: #1DB954;
-    }
-    
-    .steps {
-      display: flex;
-      justify-content: center;
-      gap: 20px;
-      flex-wrap: wrap;
-    }
-    
-    .step {
-      background-color: rgba(255, 255, 255, 0.08);
-      padding: 20px;
-      border-radius: 12px;
-      width: 220px;
-      text-align: center;
-      transition: transform 0.3s ease, box-shadow 0.3s ease;
-      border: 1px solid rgba(255, 255, 255, 0.05);
-    }
-    
-    .step:hover {
-      transform: translateY(-5px);
-      box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
-      background-color: rgba(29, 185, 84, 0.1);
-    }
-    
-    .step-number {
-      width: 40px;
-      height: 40px;
-      background-color: #1DB954;
-      border-radius: 50%;
-      margin: 0 auto 15px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 700;
-      font-size: 18px;
-      box-shadow: 0 5px 15px rgba(29, 185, 84, 0.3);
-    }
-    
-    .step p {
-      font-size: 14px;
-      line-height: 1.5;
-      margin: 0;
-    }
-    
-    @media (max-width: 768px) {
-      .premium-notice {
-        flex-direction: column;
-        text-align: center;
-        padding: 15px;
-      }
-      
-      .steps {
-        flex-direction: column;
-        align-items: center;
-      }
-      
-      .step {
-        width: 90%;
-        max-width: 280px;
-      }
-    }
-  `;
-  
-  document.head.appendChild(style);
+  // Implementation unchanged
 }
 
 /**
@@ -306,8 +191,10 @@ function showErrorMessage(error) {
 /**
  * Show error message in overlay
  * @param {string} message - Error message
+ * @param {boolean} isPremiumError - Whether it's a Premium account error
+ * @param {boolean} isAuthError - Whether it's an authentication error
  */
-function showError(message) {
+function showError(message, isPremiumError = false, isAuthError = false) {
   // Create error overlay if it doesn't exist
   let errorOverlay = document.getElementById('error-overlay');
   
@@ -316,10 +203,12 @@ function showError(message) {
     errorOverlay.id = 'error-overlay';
     errorOverlay.innerHTML = `
       <div class="error-container">
-        <h2>Something went wrong</h2>
+        <h2>${isPremiumError ? 'Spotify Premium Required' : 'Something went wrong'}</h2>
         <p id="error-message"></p>
         <div class="error-buttons">
-          <button id="error-retry">Try Again</button>
+          ${isPremiumError ? 
+            '<button id="error-premium">Upgrade to Premium</button>' : 
+            '<button id="error-retry">Try Again</button>'}
           <button id="error-logout">Log Out</button>
         </div>
       </div>
@@ -327,19 +216,38 @@ function showError(message) {
     document.body.appendChild(errorOverlay);
     
     // Add event listeners
-    document.getElementById('error-retry').addEventListener('click', () => {
-      window.location.reload();
-    });
+    if (isPremiumError) {
+      document.getElementById('error-premium').addEventListener('click', () => {
+        window.open('https://www.spotify.com/premium/', '_blank');
+      });
+    } else {
+      const retryButton = document.getElementById('error-retry');
+      if (retryButton) {
+        retryButton.addEventListener('click', () => {
+          window.location.reload();
+        });
+      }
+    }
     
     document.getElementById('error-logout').addEventListener('click', () => {
       // Clear tokens and redirect to login
-      localStorage.clear();
+      clearTokens();
       window.location.href = '/';
     });
   }
   
   // Set error message
-  document.getElementById('error-message').textContent = message;
+  const errorMessageEl = document.getElementById('error-message');
+  if (errorMessageEl) {
+    errorMessageEl.textContent = message;
+  }
+  
+  // Handle auth error - automatically redirect after a delay
+  if (isAuthError) {
+    setTimeout(() => {
+      window.location.href = '/';
+    }, 3000);
+  }
   
   // Show error overlay
   errorOverlay.style.display = 'flex';

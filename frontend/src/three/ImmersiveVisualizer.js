@@ -211,8 +211,9 @@ export class ImmersiveVisualizer {
   /**
    * Create or update album cover with image
    * @param {string} imageUrl - URL of album artwork
+   * @param {THREE.Texture} preloadedTexture - Optional preloaded texture
    */
-  createAlbumCover(imageUrl) {
+  createAlbumCover(imageUrl, preloadedTexture) {
     // Remove existing album cover if any
     if (this.albumCover) {
       this.scene.remove(this.albumCover);
@@ -229,14 +230,27 @@ export class ImmersiveVisualizer {
       this.trackInfo.albumImageLoaded = false;
     }
     
-    // Create a placeholder if no image URL is provided
-    const texture = imageUrl 
-      ? new THREE.TextureLoader().load(imageUrl, () => {
+    // Use preloaded texture or create a new one
+    let texture = preloadedTexture;
+    
+    if (!texture && imageUrl) {
+      // Create a new texture loader with cross-origin enabled
+      const loader = new THREE.TextureLoader();
+      loader.setCrossOrigin('anonymous');
+      
+      texture = loader.load(
+        imageUrl, 
+        () => {
           this.trackInfo.albumImageLoaded = true;
           this.extractColorsFromAlbumArt(imageUrl);
-        }) 
-      : null;
-      
+        },
+        undefined,
+        (err) => {
+          console.warn('Error loading texture in createAlbumCover:', err);
+        }
+      );
+    }
+    
     // Create album cover with beveled edges
     const geometry = new THREE.BoxGeometry(7, 7, 0.2);
     const material = new THREE.MeshPhysicalMaterial({

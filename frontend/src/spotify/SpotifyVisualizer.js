@@ -8,6 +8,8 @@ import { renderTrackInfo } from '../ui/TrackInfo.js';
 import { createErrorOverlay } from '../ui/ErrorOverlay.js';
 import { SpotifyPlayerManager } from './SpotifyPlayerManager.js';
 import { DeviceStatusUI } from '../ui/DeviceStatusUI.js';
+import { getAccessTokenFromUrl, isAuthenticated, redirectToLogin } from '../auth/handleAuth.js';
+
 
 /**
  * Main class for Spotify Visualizer application
@@ -84,6 +86,13 @@ export class SpotifyVisualizer {
       
       // Show loading spinner
       this.showLoading();
+      
+      // Check authentication status
+      if (!isAuthenticated()) {
+        this.hideLoading();
+        redirectToLogin();
+        return false;
+      }
       
       // Get Spotify access token
       this.accessToken = getAccessTokenFromUrl() || localStorage.getItem('spotify_access_token');
@@ -188,7 +197,23 @@ export class SpotifyVisualizer {
     // Check if Premium is required but not available
     if (!data.isPremium) {
       this.deviceStatusUI.setState('premiumRequired');
-      this.handleError(new Error('Spotify Premium is required for this visualizer.'));
+      
+      // Show Premium requirement error
+      const error = new Error('Spotify Premium is required for full functionality of this visualizer. Some features will be limited.');
+      error.isPremiumError = true;
+      error.isFatal = false; // Allow continued use with limited features
+      
+      this.handleError(error);
+      
+      console.warn('Non-Premium account detected: Some features like audio analysis and detailed visualization will use fallback data.');
+      
+      // Display info message after a slight delay
+      setTimeout(() => {
+        this.showMessage('Non-Premium account: Using fallback audio data. Some visualizations may not sync perfectly with music.', false, 8000);
+      }, 3000);
+      
+      // Continue initialization, but with limited features
+      return;
     }
   }
   

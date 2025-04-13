@@ -277,8 +277,10 @@
     <!-- WebGL Performance Monitor (development only) -->
     <script type="module">
       if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-        import('https://cdn.jsdelivr.net/npm/stats.js@0.17.0/build/stats.min.js')
-          .then(() => {
+        // Load Stats.js the traditional way to avoid module import issues
+        const script = document.createElement('script');
+        script.onload = function() {
+          if (typeof Stats !== 'undefined') {
             const stats = new Stats();
             stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
             document.body.appendChild(stats.dom);
@@ -293,8 +295,13 @@
               stats.update();
               requestAnimationFrame(loop);
             });
-          })
-          .catch(err => console.error('Stats.js could not be loaded:', err));
+          }
+        };
+        script.onerror = function(err) {
+          console.warn('Stats.js could not be loaded (normal in production)');
+        };
+        script.src = 'https://cdn.jsdelivr.net/npm/stats.js@0.17.0/build/stats.min.js';
+        document.head.appendChild(script);
       }
     </script>
     
