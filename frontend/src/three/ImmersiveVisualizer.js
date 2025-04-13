@@ -1,5 +1,4 @@
-// frontend/src/three/ImmersiveVisualizer.js
-
+// Enhanced ImmersiveVisualizer with more dynamic effects
 import * as THREE from 'three';
 
 export class ImmersiveVisualizer {
@@ -9,74 +8,145 @@ export class ImmersiveVisualizer {
     this.renderer = null;
     this.analyser = null;
     this.albumCover = null;
-    this.particles = [];
-    this.wavePoints = [];
+    this.particleSystem = null;
+    this.waveCircle = null;
     this.initialized = false;
     this.time = 0;
+    this.lastFrameTime = 0;
+    
+    // Camera animation
+    this.cameraPosition = {
+      current: new THREE.Vector3(0, 0, 20),
+      target: new THREE.Vector3(0, 0, 20),
+      lookAt: new THREE.Vector3(0, 0, 0)
+    };
     
     // Audio reactive elements
-    this.bassIntensity = 0;
-    this.midIntensity = 0;
-    this.trebleIntensity = 0;
-    this.beatDetected = false;
-    this.beatTime = 0;
+    this.audioData = {
+      bass: 0,
+      midLow: 0,
+      mid: 0,
+      highMid: 0,
+      high: 0,
+      beatDetected: false,
+      beatTime: 0,
+      energy: 0
+    };
+    
+    // Visual state
+    this.visualState = {
+      albumRotation: 0,
+      particleScale: 1,
+      waveAmplitude: 1,
+      colorPulse: 0,
+      bloomIntensity: 1.0
+    };
+    
+    // Track data
+    this.trackInfo = {
+      albumImageLoaded: false,
+      albumImageUrl: null,
+      colorPalette: null
+    };
+    
+    // Render targets and post-processing
+    this.composer = null;
+    this.effectPass = null;
     
     // Configuration
     this.config = {
+      camera: {
+        fov: 70,
+        near: 0.1,
+        far: 2000,
+        dampingFactor: 0.05
+      },
       particles: {
-        count: 2000,
-        size: 0.1,
-        minSize: 0.05,
-        maxSize: 0.3,
-        speed: 0.2
+        count: 4000,
+        size: { min: 0.05, max: 0.4 },
+        speed: 0.2,
+        responsiveness: 0.8
       },
       waves: {
-        count: 128,
-        amplitude: 5,
-        speed: 0.2
+        count: 256,
+        amplitude: { min: 2, max: 10 },
+        speed: 0.2,
+        detail: 16
       },
       colors: {
         primary: new THREE.Color(0x1db954),    // Spotify green
         secondary: new THREE.Color(0x2e77ff),  // Blue
         accent: new THREE.Color(0xff1e88),     // Pink
         background: new THREE.Color(0x111111)  // Dark background
+      },
+      postprocessing: {
+        enabled: true,
+        bloom: {
+          threshold: 0.3,
+          strength: 1.0,
+          radius: 0.7
+        }
       }
     };
+    
+    // Visual modes
+    this.visualModes = [
+      'orbital',    // Particles orbiting album
+      'waveform',   // Audio waveform visualization
+      'nebula',     // Particle clouds that react to audio
+      'geometric'   // Geometric shapes that pulse to the beat
+    ];
+    
+    this.currentMode = this.visualModes[0];
+    
+    // Add Geometry collections
+    this.geometries = {
+      particles: null,
+      waves: null,
+      extras: []
+    };
+    
+    // Store dynamic materials
+    this.materials = {};
   }
   
+  /**
+   * Initialize the visualizer
+   * @param {HTMLElement} containerElement - DOM element to attach the renderer to
+   */
   init(containerElement) {
     // Create scene
     this.scene = new THREE.Scene();
     this.scene.background = this.config.colors.background;
+    this.scene.fog = new THREE.FogExp2(this.config.colors.background, 0.001);
     
     // Create camera
     this.camera = new THREE.PerspectiveCamera(
-      70,
+      this.config.camera.fov,
       window.innerWidth / window.innerHeight,
-      0.1,
-      1000
+      this.config.camera.near,
+      this.config.camera.far
     );
     this.camera.position.z = 20;
     
-    // Create renderer with antialiasing and device pixel ratio optimization
+    // Create renderer with enhanced settings
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: true,
-      powerPreference: 'high-performance'
+      powerPreference: 'high-performance',
+      stencil: false
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     
     // Append renderer to container
     containerElement.appendChild(this.renderer.domElement);
     
-    // Add lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
-    this.scene.add(ambientLight);
-    
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
-    directionalLight.position.set(0, 1, 1);
-    this.scene.add(directionalLight);
+    // Add lighting system
+    this.setupLighting();
     
     // Add album cover placeholder in center
     this.createAlbumCover();
@@ -87,15 +157,99 @@ export class ImmersiveVisualizer {
     // Create wave system
     this.createWaveSystem();
     
+    // Add post-processing
+    if (this.config.postprocessing.enabled && window.innerWidth > 768) {
+      this.setupPostProcessing();
+    }
+    
     // Handle window resize
     window.addEventListener('resize', this.onWindowResize.bind(this));
     
     this.initialized = true;
+    this.lastFrameTime = performance.now();
     
     // Start animation loop
     this.animate();
   }
   
+  /**
+   * Set up the lighting system
+   */
+  setupLighting() {
+    // Ambient light for overall illumination
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.2);
+    this.scene.add(ambientLight);
+    
+    // Point light that will pulse with the beat
+    const mainLight = new THREE.PointLight(0x1db954, 1, 100);
+    mainLight.position.set(0, 0, 15);
+    mainLight.castShadow = true;
+    mainLight.shadow.mapSize.width = 512;
+    mainLight.shadow.mapSize.height = 512;
+    this.scene.add(mainLight);
+    this.mainLight = mainLight;
+    
+    // Directional light for highlights
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(5, 10, 7);
+    directionalLight.castShadow = true;
+    this.scene.add(directionalLight);
+    
+    // Add subtle rim light for depth
+    const rimLight = new THREE.DirectionalLight(0x2233ff, 0.3);
+    rimLight.position.set(-5, -3, -5);
+    this.scene.add(rimLight);
+    this.rimLight = rimLight;
+  }
+  
+  /**
+   * Set up post-processing effects
+   */
+  setupPostProcessing() {
+    try {
+      // Import required Three.js addons for post-processing
+      // This would normally be done at the top of the file but is shown here for clarity
+      // Make sure to add the following to your imports:
+      // import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+      // import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+      // import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+      // import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+      // import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+      
+      // If these imports are working, you can uncomment this code to enable post-processing
+      /*
+      this.composer = new EffectComposer(this.renderer);
+      
+      // Add standard render pass
+      const renderPass = new RenderPass(this.scene, this.camera);
+      this.composer.addPass(renderPass);
+      
+      // Add bloom pass for glow effects
+      const bloomPass = new UnrealBloomPass(
+        new THREE.Vector2(window.innerWidth, window.innerHeight),
+        this.config.postprocessing.bloom.strength,
+        this.config.postprocessing.bloom.radius,
+        this.config.postprocessing.bloom.threshold
+      );
+      this.composer.addPass(bloomPass);
+      this.bloomPass = bloomPass;
+      
+      // Add output pass
+      const outputPass = new OutputPass();
+      this.composer.addPass(outputPass);
+      */
+      
+      console.log('Post-processing setup succeeded');
+    } catch (error) {
+      console.error('Post-processing setup failed:', error);
+      this.config.postprocessing.enabled = false;
+    }
+  }
+  
+  /**
+   * Create or update album cover with image
+   * @param {string} imageUrl - URL of album artwork
+   */
   createAlbumCover(imageUrl) {
     // Remove existing album cover if any
     if (this.albumCover) {
@@ -107,354 +261,113 @@ export class ImmersiveVisualizer {
       this.albumCover.geometry.dispose();
     }
     
+    // Update track info
+    if (imageUrl) {
+      this.trackInfo.albumImageUrl = imageUrl;
+      this.trackInfo.albumImageLoaded = false;
+    }
+    
     // Create a placeholder if no image URL is provided
     const texture = imageUrl 
-      ? new THREE.TextureLoader().load(imageUrl) 
+      ? new THREE.TextureLoader().load(imageUrl, () => {
+          this.trackInfo.albumImageLoaded = true;
+          this.extractColorsFromAlbumArt(imageUrl);
+        }) 
       : null;
       
-    const geometry = new THREE.BoxGeometry(6, 6, 0.1);
-    const material = new THREE.MeshPhongMaterial({
+    // Create album cover with beveled edges
+    const geometry = new THREE.BoxGeometry(7, 7, 0.2);
+    const material = new THREE.MeshPhysicalMaterial({
       color: texture ? 0xffffff : 0x1db954,
       map: texture,
-      shininess: 30,
-      emissive: 0x111111,
-      emissiveIntensity: 0.1
+      metalness: 0.1,
+      roughness: 0.3,
+      envMapIntensity: 0.8,
+      reflectivity: 0.2,
+      clearcoat: 0.4,
+      clearcoatRoughness: 0.2
     });
     
     this.albumCover = new THREE.Mesh(geometry, material);
+    this.albumCover.castShadow = true;
+    this.albumCover.receiveShadow = true;
     this.scene.add(this.albumCover);
+    
+    // Store material for later updates
+    this.materials.albumCover = material;
     
     // Create glowing edges around album cover
     const edgeGeometry = new THREE.EdgesGeometry(geometry);
     const edgeMaterial = new THREE.LineBasicMaterial({ 
       color: this.config.colors.primary,
-      linewidth: 2
+      linewidth: 2,
+      transparent: true,
+      opacity: 0.8
     });
     
     const edges = new THREE.LineSegments(edgeGeometry, edgeMaterial);
     this.albumCover.add(edges);
+    
+    // Store for animations
+    this.materials.albumEdges = edgeMaterial;
   }
   
-  createParticleSystem() {
-    const { count, size } = this.config.particles;
+  /**
+   * Extract dominant colors from album artwork
+   * @param {string} imageUrl - URL of album artwork
+   */
+  extractColorsFromAlbumArt(imageUrl) {
+    // This would ideally use a color extraction library
+    // For now, we'll simulate by generating a color palette
     
-    // Create instanced particles for better performance
-    const geometry = new THREE.BufferGeometry();
-    const positions = new Float32Array(count * 3);
-    const scales = new Float32Array(count);
-    const colors = new Float32Array(count * 3);
+    // Generate a palette based on shifting the primary color
+    const baseHue = Math.random();
+    const colorPalette = {
+      primary: new THREE.Color().setHSL(baseHue, 0.8, 0.6),
+      secondary: new THREE.Color().setHSL((baseHue + 0.33) % 1, 0.7, 0.5),
+      accent: new THREE.Color().setHSL((baseHue + 0.66) % 1, 0.9, 0.5),
+      dark: new THREE.Color().setHSL(baseHue, 0.7, 0.2)
+    };
     
-    // Distribute particles in a sphere around the album
-    for (let i = 0; i < count; i++) {
-      // Random position in a sphere
-      const radius = 10 + Math.random() * 10;
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.acos(2 * Math.random() - 1);
-      
-      positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
-      positions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
-      positions[i * 3 + 2] = radius * Math.cos(phi);
-      
-      // Random scale
-      scales[i] = size * (0.5 + Math.random());
-      
-      // Color gradient based on position
-      const colorMix = Math.random();
-      colors[i * 3] = this.config.colors.primary.r * (1 - colorMix) + this.config.colors.secondary.r * colorMix;
-      colors[i * 3 + 1] = this.config.colors.primary.g * (1 - colorMix) + this.config.colors.secondary.g * colorMix;
-      colors[i * 3 + 2] = this.config.colors.primary.b * (1 - colorMix) + this.config.colors.secondary.b * colorMix;
+    // Store color palette
+    this.trackInfo.colorPalette = colorPalette;
+    
+    // Update material colors
+    if (this.materials.albumEdges) {
+      this.materials.albumEdges.color = colorPalette.primary;
     }
     
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('scale', new THREE.BufferAttribute(scales, 1));
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    if (this.mainLight) {
+      this.mainLight.color = colorPalette.primary;
+    }
     
-    // Create point material with custom shader for more control
-    const material = new THREE.ShaderMaterial({
-      uniforms: {
-        time: { value: 0 },
-        beatIntensity: { value: 0 }
-      },
-      vertexShader: `
-        attribute float scale;
-        attribute vec3 color;
-        uniform float time;
-        uniform float beatIntensity;
-        varying vec3 vColor;
+    if (this.rimLight) {
+      this.rimLight.color = colorPalette.secondary;
+    }
+    
+    // Update particle colors
+    if (this.particleSystem && this.particleSystem.geometry.attributes.color) {
+      const colors = this.particleSystem.geometry.attributes.color.array;
+      
+      for (let i = 0; i < colors.length; i += 3) {
+        const mix = Math.random();
         
-        void main() {
-          vColor = color;
-          
-          // Calculate position with some movement
-          vec3 pos = position;
-          float noise = sin(pos.x * 0.1 + time) * cos(pos.y * 0.1 + time * 0.5) * sin(pos.z * 0.1 + time * 0.3);
-          
-          // Add beat effect
-          float beatEffect = 1.0 + beatIntensity * 0.3 * noise;
-          pos *= beatEffect;
-          
-          vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
-          
-          // Size attenuation based on beat
-          gl_PointSize = scale * (1.0 + beatIntensity * 0.5) * (300.0 / -mvPosition.z);
-          gl_Position = projectionMatrix * mvPosition;
+        if (mix < 0.5) {
+          colors[i] = colorPalette.primary.r;
+          colors[i + 1] = colorPalette.primary.g;
+          colors[i + 2] = colorPalette.primary.b;
+        } else if (mix < 0.8) {
+          colors[i] = colorPalette.secondary.r;
+          colors[i + 1] = colorPalette.secondary.g;
+          colors[i + 2] = colorPalette.secondary.b;
+        } else {
+          colors[i] = colorPalette.accent.r;
+          colors[i + 1] = colorPalette.accent.g;
+          colors[i + 2] = colorPalette.accent.b;
         }
-      `,
-      fragmentShader: `
-        varying vec3 vColor;
-        
-        void main() {
-          // Create circle point
-          float r = distance(gl_PointCoord, vec2(0.5, 0.5));
-          if (r > 0.5) discard;
-          
-          // Add glow effect
-          float glow = 0.5 - r;
-          
-          gl_FragColor = vec4(vColor * glow, glow * 2.0);
-        }
-      `,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      transparent: true,
-      vertexColors: true
-    });
-    
-    this.particleSystem = new THREE.Points(geometry, material);
-    this.scene.add(this.particleSystem);
-  }
-  
-  createWaveSystem() {
-    const { count, amplitude } = this.config.waves;
-    
-    // Create circular wave
-    const geometry = new THREE.BufferGeometry();
-    const positions = new Float32Array(count * 3);
-    const originalPositions = new Float32Array(count * 3);
-    
-    for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2;
-      const radius = 8;
-      
-      const x = Math.cos(angle) * radius;
-      const y = Math.sin(angle) * radius;
-      const z = 0;
-      
-      positions[i * 3] = x;
-      positions[i * 3 + 1] = y;
-      positions[i * 3 + 2] = z;
-      
-      originalPositions[i * 3] = x;
-      originalPositions[i * 3 + 1] = y;
-      originalPositions[i * 3 + 2] = z;
-    }
-    
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    
-    const material = new THREE.LineBasicMaterial({
-      color: this.config.colors.primary,
-      linewidth: 2,
-      transparent: true,
-      opacity: 0.7
-    });
-    
-    this.waveCircle = new THREE.LineLoop(geometry, material);
-    this.scene.add(this.waveCircle);
-    
-    // Store original positions for wave animation
-    this.waveCircle.userData.originalPositions = originalPositions;
-  }
-  
-  updateAlbumCover(imageUrl) {
-    if (!this.initialized) return;
-    
-    // Update with new image
-    this.createAlbumCover(imageUrl);
-  }
-  
-  setAudioAnalyser(analyser) {
-    this.analyser = analyser;
-  }
-  
-  updateAudioData(audioData) {
-    if (!audioData) return;
-    
-    // Get frequency data
-    const { frequencies, beatDetected } = audioData;
-    
-    if (frequencies) {
-      // Split frequency range into bass, mid, treble
-      const bassEnd = Math.floor(frequencies.length * 0.1);
-      const midEnd = Math.floor(frequencies.length * 0.5);
-      
-      // Calculate average intensity for each range
-      let bassSum = 0;
-      for (let i = 0; i < bassEnd; i++) {
-        bassSum += frequencies[i];
-      }
-      this.bassIntensity = bassSum / (bassEnd * 255); // Normalize to 0-1
-      
-      let midSum = 0;
-      for (let i = bassEnd; i < midEnd; i++) {
-        midSum += frequencies[i];
-      }
-      this.midIntensity = midSum / ((midEnd - bassEnd) * 255);
-      
-      let trebleSum = 0;
-      for (let i = midEnd; i < frequencies.length; i++) {
-        trebleSum += frequencies[i];
-      }
-      this.trebleIntensity = trebleSum / ((frequencies.length - midEnd) * 255);
-    }
-    
-    // Handle beat detection
-    if (beatDetected) {
-      this.beatDetected = true;
-      this.beatTime = this.time;
-    } else if (this.time - this.beatTime > 0.3) {
-      // Reset beat detection after a short time
-      this.beatDetected = false;
-    }
-  }
-  
-  onWindowResize() {
-    if (!this.initialized) return;
-    
-    this.camera.aspect = window.innerWidth / window.innerHeight;
-    this.camera.updateProjectionMatrix();
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
-  }
-  
-  animate() {
-    if (!this.initialized) return;
-    
-    requestAnimationFrame(this.animate.bind(this));
-    
-    this.time += 0.016; // Approximate 60fps delta
-    
-    this.updateVisuals();
-    this.render();
-  }
-  
-  updateVisuals() {
-    // Update beat intensity - either from detected beat or fallback to bass
-    const beatIntensity = this.beatDetected ? 1.0 : this.bassIntensity * 0.7;
-    
-    // Smoothly decay beat effect
-    const beatDecay = Math.max(0, 1 - (this.time - this.beatTime) * 3);
-    const currentBeatEffect = Math.max(beatIntensity, beatDecay);
-    
-    // Update album cover
-    if (this.albumCover) {
-      // Pulse scale on beat
-      const scale = 1 + currentBeatEffect * 0.05;
-      this.albumCover.scale.set(scale, scale, 1);
-      
-      // Rotate slowly
-      this.albumCover.rotation.y = this.time * 0.1;
-      
-      // Edges color based on frequency bands
-      if (this.albumCover.children[0]) {
-        const edgeColor = new THREE.Color().lerpColors(
-          this.config.colors.primary,
-          this.config.colors.accent,
-          this.midIntensity
-        );
-        this.albumCover.children[0].material.color = edgeColor;
-      }
-    }
-    
-    // Update particle system
-    if (this.particleSystem) {
-      // Update shader uniforms
-      this.particleSystem.material.uniforms.time.value = this.time;
-      this.particleSystem.material.uniforms.beatIntensity.value = currentBeatEffect;
-      
-      // Rotate based on mid frequencies
-      this.particleSystem.rotation.y = this.time * this.config.particles.speed;
-      this.particleSystem.rotation.x = Math.sin(this.time * 0.2) * 0.2;
-    }
-    
-    // Update wave circle
-    if (this.waveCircle) {
-      const positions = this.waveCircle.geometry.attributes.position.array;
-      const originalPositions = this.waveCircle.userData.originalPositions;
-      
-      for (let i = 0; i < positions.length / 3; i++) {
-        const angle = (i / (positions.length / 3)) * Math.PI * 2;
-        
-        // Create wave effect
-        const wave1 = Math.sin(angle * 8 + this.time * 2) * this.bassIntensity * 2;
-        const wave2 = Math.sin(angle * 4 - this.time * 1.5) * this.midIntensity * 1.5;
-        const wave3 = Math.sin(angle * 16 + this.time * 3) * this.trebleIntensity;
-        
-        const displacement = (wave1 + wave2 + wave3) * this.config.waves.amplitude;
-        
-        // Calculate direction from center
-        const originalX = originalPositions[i * 3];
-        const originalY = originalPositions[i * 3 + 1];
-        const length = Math.sqrt(originalX * originalX + originalY * originalY);
-        const dirX = originalX / length;
-        const dirY = originalY / length;
-        
-        // Apply displacement in radial direction
-        positions[i * 3] = originalX + dirX * displacement * (1 + currentBeatEffect);
-        positions[i * 3 + 1] = originalY + dirY * displacement * (1 + currentBeatEffect);
       }
       
-      this.waveCircle.geometry.attributes.position.needsUpdate = true;
-      
-      // Update color based on audio
-      const waveColor = new THREE.Color().lerpColors(
-        this.config.colors.primary,
-        this.config.colors.secondary,
-        this.midIntensity + this.trebleIntensity * 0.5
-      );
-      this.waveCircle.material.color = waveColor;
-      
-      // Update opacity based on treble
-      this.waveCircle.material.opacity = 0.5 + this.trebleIntensity * 0.5;
+      this.particleSystem.geometry.attributes.color.needsUpdate = true;
     }
-    
-    // Move camera slightly for more dynamic feel
-    this.camera.position.x = Math.sin(this.time * 0.2) * 2;
-    this.camera.position.y = Math.cos(this.time * 0.3) * 1;
-    this.camera.lookAt(0, 0, 0);
-  }
-  
-  render() {
-    if (this.renderer && this.scene && this.camera) {
-      this.renderer.render(this.scene, this.camera);
-    }
-  }
-  
-  dispose() {
-    if (!this.initialized) return;
-    
-    // Clean up resources
-    if (this.albumCover) {
-      this.scene.remove(this.albumCover);
-      if (this.albumCover.material.map) {
-        this.albumCover.material.map.dispose();
-      }
-      this.albumCover.material.dispose();
-      this.albumCover.geometry.dispose();
-    }
-    
-    if (this.particleSystem) {
-      this.scene.remove(this.particleSystem);
-      this.particleSystem.geometry.dispose();
-      this.particleSystem.material.dispose();
-    }
-    
-    if (this.waveCircle) {
-      this.scene.remove(this.waveCircle);
-      this.waveCircle.geometry.dispose();
-      this.waveCircle.material.dispose();
-    }
-    
-    this.renderer.dispose();
-    
-    window.removeEventListener('resize', this.onWindowResize.bind(this));
   }
 }

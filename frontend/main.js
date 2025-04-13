@@ -1,10 +1,19 @@
-// Main entry point for the application
+// Enhanced main entry point using the improved components
 import './src/visualizer.css';
-import { initVisualizer } from './src/three/Visualizer.js';
+import { VisualizerManager } from './src/three/VisualizerManager.js';
 import { getAccessTokenFromUrl, isAuthenticated, redirectToLogin } from './src/auth/handleAuth.js';
 
+// Global visualizer manager instance
+let visualizerManager = null;
+
 document.addEventListener('DOMContentLoaded', () => {
-  // Add loading indicator first
+  // Detect WebGL support first
+  if (!hasWebGLSupport()) {
+    showError('Your browser does not support WebGL, which is required for this visualizer.');
+    return;
+  }
+  
+  // Add loading indicator
   const loading = document.createElement('div');
   loading.className = 'loading-spinner';
   document.body.appendChild(loading);
@@ -27,6 +36,12 @@ document.addEventListener('DOMContentLoaded', () => {
       document.body.removeChild(loading);
     }
   }
+  
+  // Add visualization mode controls
+  setupVisualizationControls();
+  
+  // Add window resize handler
+  window.addEventListener('resize', handleWindowResize);
 });
 
 /**
@@ -41,8 +56,10 @@ function showVisualizer(accessToken) {
   if (loginScreen) loginScreen.style.display = 'none';
   if (app) app.style.display = 'block';
   
-  // Initialize visualizer with error handling
-  initVisualizer(accessToken)
+  // Initialize visualizer manager
+  visualizerManager = new VisualizerManager();
+  
+  visualizerManager.initialize(app, accessToken)
     .catch(error => {
       console.error('Error initializing visualizer:', error);
       
@@ -170,16 +187,79 @@ function showError(message) {
   errorOverlay.style.display = 'flex';
 }
 
-// Check for WebGL support on page load
-(function checkWebGLSupport() {
+/**
+ * Check for WebGL support
+ * @returns {boolean} - Whether WebGL is supported
+ */
+function hasWebGLSupport() {
   try {
     const canvas = document.createElement('canvas');
     const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
     
-    if (!gl) {
-      showError('Your browser does not support WebGL, which is required for this visualizer.');
-    }
+    return !!gl;
   } catch (e) {
-    showError('There was an error initializing WebGL. Please try a different browser.');
+    return false;
   }
-})();
+}
+
+/**
+ * Setup visualization mode controls
+ */
+function setupVisualizationControls() {
+  // Create visualization controls
+  const controls = document.createElement('div');
+  controls.id = 'visualization-controls';
+  controls.innerHTML = `
+    <div class="viz-buttons">
+      <button class="viz-button active" data-mode="orbital">Orbital</button>
+      <button class="viz-button" data-mode="waveform">Waveform</button>
+      <button class="viz-button" data-mode="nebula">Nebula</button>
+      <button class="viz-button" data-mode="geometric">Geometric</button>
+    </div>
+  `;
+  
+  document.body.appendChild(controls);
+  
+  // Add event listeners to buttons
+  const buttons = controls.querySelectorAll('.viz-button');
+  buttons.forEach(button => {
+    button.addEventListener('click', (e) => {
+      // Update active state
+      buttons.forEach(btn => btn.classList.remove('active'));
+      e.target.classList.add('active');
+      
+      // Change visualization mode
+      const mode = e.target.getAttribute('data-mode');
+      if (visualizerManager) {
+        visualizerManager.setVisualizationMode(mode);
+      }
+    });
+  });
+  
+  // Hide controls initially, show when visualizer is active
+  controls.style.display = 'none';
+  
+  // Show controls when visualizer is initialized
+  const showControlsInterval = setInterval(() => {
+    if (visualizerManager && visualizerManager.initialized) {
+      controls.style.display = 'block';
+      clearInterval(showControlsInterval);
+    }
+  }, 1000);
+}
+
+/**
+ * Handle window resize
+ */
+function handleWindowResize() {
+  if (visualizerManager) {
+    visualizerManager.onWindowResize();
+  }
+}
+
+// Handle page unload
+window.addEventListener('beforeunload', () => {
+  if (visualizerManager) {
+    visualizerManager.dispose();
+  }
+});
