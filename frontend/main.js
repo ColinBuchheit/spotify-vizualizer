@@ -1,6 +1,6 @@
 // Main entry point for the application
 import './src/visualizer.css';
-import { initVisualizer } from './src/three/Visualizer.js';
+import { initVisualizer } from './src/three/index.js';
 import { getAccessTokenFromUrl, isAuthenticated, redirectToLogin } from './src/auth/handleAuth.js';
 
 document.addEventListener('DOMContentLoaded', () => {
