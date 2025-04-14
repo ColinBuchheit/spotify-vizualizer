@@ -4,6 +4,8 @@
 import * as THREE from 'three';
 import { renderTrackInfo } from '../ui/TrackInfo.js';
 import { getCurrentlyPlayingTrack, getAudioFeatures, getAudioAnalysis } from '../spotify/spotifyAPI.js';
+import { createVolumeControl } from '../ui/VolumeControl.js';
+import '../ui/volume-control.css';
 
 // Import visualization modules
 import { 
@@ -83,6 +85,9 @@ export async function initVisualizer(accessToken) {
   
   // Add UI for changing visualization modes
   addVisualizationControls(changeVisualizationMode);
+  
+  // Add volume control
+  setupVolumeControl();
   
   // Handle window resizing
   window.addEventListener('resize', onWindowResize);
@@ -295,6 +300,39 @@ async function setupSpotifyPlayer(accessToken) {
       // Get audio features for better visualization
       await fetchTrackAnalysis(track.id, accessToken);
     }
+  });
+}
+
+/**
+ * Set up volume control UI
+ * @param {number} initialVolume - Initial volume (0-1)
+ */
+function setupVolumeControl(initialVolume = 0.8) {
+  if (!player) {
+    console.warn('Player not initialized, cannot set up volume control');
+    return;
+  }
+
+  // Create volume control component
+  const volumeControl = createVolumeControl(async (volume) => {
+    try {
+      // Update player volume
+      await player.setVolume(volume);
+      console.log(`Volume set to ${volume}`);
+    } catch (error) {
+      console.error('Error setting volume:', error);
+      showError('Could not adjust volume. Please try again.');
+    }
+  }, initialVolume);
+  
+  // Add to document
+  document.body.appendChild(volumeControl.element);
+  
+  // Get current volume from player (if available)
+  player.getVolume().then(volume => {
+    volumeControl.setVolume(volume);
+  }).catch(err => {
+    console.warn('Could not get current volume:', err);
   });
 }
 
