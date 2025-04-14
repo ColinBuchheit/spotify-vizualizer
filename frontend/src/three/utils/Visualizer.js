@@ -2,29 +2,29 @@
 // Main entry point for the 3D audio visualizer
 
 import * as THREE from 'three';
-import { renderTrackInfo } from '../ui/TrackInfo.js';
-import { getCurrentlyPlayingTrack, getAudioFeatures, getAudioAnalysis } from '../spotify/spotifyAPI.js';
-import { createVolumeControl } from '../ui/VolumeControl.js';
-import '../ui/volume-control.css';
+import { renderTrackInfo } from '../../ui/TrackInfo.js';
+import { getCurrentlyPlayingTrack, getAudioFeatures, getAudioAnalysis } from '../../spotify/spotifyAPI.js';
+import { createVolumeControl } from '../../ui/VolumeControl.js';
+import '../../ui/volume-control.css';
 
 // Import visualization modules
 import { 
   createBarsVisualization, 
   removeBarsVisualization, 
   updateBarsVisualization 
-} from './visualizations/BarsVisualization.js';
+} from '../visualizations/BarsVisualization.js';
 
 import { 
   createParticlesVisualization, 
   removeParticlesVisualization, 
   updateParticlesVisualization 
-} from './visualizations/ParticlesVisualization.js';
+} from '../visualizations/ParticlesVisualization.js';
 
 import { 
   createWaveformVisualization, 
   removeWaveformVisualization, 
   updateWaveformVisualization 
-} from './visualizations/WaveformVisualization.js';
+} from '../visualizations/WaveformVisualization.js';
 
 // Import utility functions
 import { 
@@ -35,7 +35,7 @@ import {
   showError, 
   waitForSpotifySDK,
   addVisualizationControls
-} from './utils/VisualizerUtils.js';
+} from './VisualizerUtils.js';
 
 // Scene variables
 let scene, camera, renderer;
@@ -79,6 +79,12 @@ let isPaused = false;
 export async function initVisualizer(accessToken) {
   // Store access token for later use
   accessTokenValue = accessToken;
+  
+  // Show the app container to make sure it's visible
+  const appContainer = document.getElementById('app');
+  if (appContainer) {
+    appContainer.style.display = 'block';
+  }
   
   setupThreeScene();
   await setupSpotifyPlayer(accessToken);
@@ -183,7 +189,7 @@ async function setupSpotifyPlayer(accessToken) {
   player = new Spotify.Player({
     name: 'Web Visualizer Player',
     getOAuthToken: cb => cb(accessToken),
-    volume: 0.8
+    volume: 0.4 // Start with lower volume
   });
 
   // Error handling
@@ -204,7 +210,7 @@ async function setupSpotifyPlayer(accessToken) {
   
   player.addListener('playback_error', ({ message }) => {
     console.error('Playback error:', message);
-    showError('Playback error. Please try again.');
+    showError('Playback error. Please try again or check your connection.');
   });
 
   // Connect player
@@ -248,7 +254,7 @@ async function setupSpotifyPlayer(accessToken) {
       }
     } catch (error) {
       console.error('Error setting up playback:', error);
-      showError('Error setting up playback. Please try again.');
+      showError('Error setting up playback. Please try again or check your Spotify connection.');
     }
   });
 
@@ -304,20 +310,41 @@ async function setupSpotifyPlayer(accessToken) {
 }
 
 /**
- * Set up volume control UI
- * @param {number} initialVolume - Initial volume (0-1)
+ * Set up volume control UI with persistent settings
  */
-function setupVolumeControl(initialVolume = 0.8) {
+function setupVolumeControl() {
   if (!player) {
     console.warn('Player not initialized, cannot set up volume control');
     return;
   }
 
+  // Try to load saved volume from localStorage
+  let initialVolume = 0.4; // Default to 40%
+  try {
+    const savedVolume = localStorage.getItem('spotify_visualizer_volume');
+    if (savedVolume !== null) {
+      initialVolume = parseFloat(savedVolume);
+      console.log('Loaded saved volume:', initialVolume);
+    }
+  } catch (e) {
+    console.warn('Could not load saved volume:', e);
+  }
+
+  console.log('Setting up volume control with initial volume:', initialVolume);
+
+  // Set initial volume on player
+  const scaledInitialVolume = Math.pow(initialVolume, 2); // Apply logarithmic curve
+  player.setVolume(scaledInitialVolume).then(() => {
+    console.log('Initial volume set successfully:', scaledInitialVolume);
+  }).catch(err => {
+    console.warn('Could not set initial volume:', err);
+  });
+
   // Create volume control component
-  const volumeControl = createVolumeControl(async (volume) => {
+  const volumeControl = createVolumeControl((volume) => {
     try {
-      // Update player volume
-      await player.setVolume(volume);
+      // Volume is already scaled in the VolumeControl component
+      player.setVolume(volume);
       console.log(`Volume set to ${volume}`);
     } catch (error) {
       console.error('Error setting volume:', error);
@@ -328,12 +355,33 @@ function setupVolumeControl(initialVolume = 0.8) {
   // Add to document
   document.body.appendChild(volumeControl.element);
   
-  // Get current volume from player (if available)
-  player.getVolume().then(volume => {
-    volumeControl.setVolume(volume);
-  }).catch(err => {
-    console.warn('Could not get current volume:', err);
-  });
+  // Add a volume tooltip/hint that fades away
+  const volumeHint = document.createElement('div');
+  volumeHint.className = 'volume-hint';
+  volumeHint.textContent = 'Use slider to adjust volume';
+  volumeHint.style.position = 'absolute';
+  volumeHint.style.bottom = '70px';
+  volumeHint.style.right = '20px';
+  volumeHint.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+  volumeHint.style.color = 'white';
+  volumeHint.style.padding = '8px 12px';
+  volumeHint.style.borderRadius = '4px';
+  volumeHint.style.fontSize = '12px';
+  volumeHint.style.opacity = '0.9';
+  volumeHint.style.transition = 'opacity 0.5s ease';
+  volumeHint.style.zIndex = '110';
+  
+  document.body.appendChild(volumeHint);
+  
+  // Fade out the hint after 5 seconds
+  setTimeout(() => {
+    volumeHint.style.opacity = '0';
+    setTimeout(() => {
+      if (document.body.contains(volumeHint)) {
+        document.body.removeChild(volumeHint);
+      }
+    }, 500);
+  }, 5000);
 }
 
 /**
@@ -364,6 +412,7 @@ async function fetchTrackAnalysis(trackId, accessToken) {
     }
   } catch (error) {
     console.error('Error fetching audio data:', error);
+    showError('Could not load audio analysis. This may affect visualization quality.');
   }
 }
 
@@ -480,6 +529,7 @@ function pollCurrentTrack() {
       }
     } catch (error) {
       console.error('Error polling current track:', error);
+      // Don't show error for polling failures to avoid spamming the user
     }
   }, pollInterval);
 }

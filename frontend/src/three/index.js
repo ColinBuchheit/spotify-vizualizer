@@ -1,1 +1,1 @@
-export { initVisualizer } from './Visualizer.js';
+export { initVisualizer } from './utils/Visualizer';
