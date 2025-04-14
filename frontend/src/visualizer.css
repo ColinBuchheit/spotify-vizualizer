@@ -179,23 +179,31 @@
 
 /* Messages */
 .message-notification {
-  position: fixed;
-  bottom: 30px;
-  right: 30px;
-  background-color: rgba(29, 185, 84, 0.9);
-  color: white;
-  padding: 15px 20px;
-  border-radius: 8px;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-  z-index: 1000;
-  opacity: 0;
-  transform: translateY(20px);
-  transition: all 0.3s ease;
+  position: fixed !important;
+  top: auto !important;
+  left: auto !important;
+  bottom: 30px !important;
+  right: 30px !important;
+  background-color: #282828 !important;
+  color: white !important;
+  padding: 15px 20px !important;
+  border-radius: 8px !important;
+  border-left: 4px solid #1db954 !important;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3) !important;
+  z-index: 1000 !important;
+  opacity: 0 !important;
+  transform: translateY(20px) !important;
+  transition: all 0.3s ease !important;
+  max-width: 350px !important;
+  width: auto !important;
+  display: block !important;
+  height: auto !important; 
+  overflow: visible !important;
 }
 
 .message-notification.show {
-  opacity: 1;
-  transform: translateY(0);
+  opacity: 1 !important;
+  transform: translateY(0) !important;
 }
 
 /* Animations */

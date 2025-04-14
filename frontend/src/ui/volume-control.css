@@ -163,10 +163,10 @@
   transform: translateX(20px);
   transition: all 0.3s ease;
   max-width: 350px;
-  width: auto; /* Instead of spanning full width */
-  display: block; /* Ensure it's a block element */
-  box-sizing: border-box; /* Include padding in width calculation */
-  text-align: left; /* Align text to left */
+  width: fit-content; /* Changed from auto to fit-content */
+  display: block;
+  box-sizing: border-box;
+  text-align: left;
 }
 
 .message-notification.show {

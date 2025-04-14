@@ -194,8 +194,8 @@ export function detectBeats(time, beats, lastBeatTime, currentTempo, energy, isP
   /**
    * Show message notification
    * @param {string} message - Message to display
- */
-export function showMessage(message) {
+   */
+  export function showMessage(message) {
     // Remove any existing notifications to prevent stacking
     const existingNotifications = document.querySelectorAll('.message-notification');
     existingNotifications.forEach(notification => {
@@ -207,35 +207,26 @@ export function showMessage(message) {
     const messageEl = document.createElement('div');
     messageEl.className = 'message-notification';
     messageEl.textContent = message;
+    
+    // Only set minimal styling to ensure proper positioning
+    // and leave the rest to CSS
     messageEl.style.position = 'fixed';
-    messageEl.style.top = '20px';
-    messageEl.style.right = '20px';
-    messageEl.style.backgroundColor = 'rgba(29, 185, 84, 0.9)';
-    messageEl.style.color = 'white';
-    messageEl.style.padding = '15px 20px';
-    messageEl.style.borderRadius = '4px';
-    messageEl.style.borderLeft = '4px solid #1db954';
-    messageEl.style.boxShadow = '0 4px 15px rgba(0, 0, 0, 0.3)';
-    messageEl.style.zIndex = '1000';
-    messageEl.style.opacity = '0';
-    messageEl.style.transform = 'translateX(20px)';
-    messageEl.style.transition = 'all 0.3s ease';
-    messageEl.style.maxWidth = '350px';
+    messageEl.style.top = 'auto';
+    messageEl.style.bottom = '30px';
+    messageEl.style.right = '30px';
     messageEl.style.width = 'auto';
-    messageEl.style.display = 'block';
-    messageEl.style.boxSizing = 'border-box';
-    messageEl.style.textAlign = 'left';
     
     document.body.appendChild(messageEl);
     
+    // Use the CSS class for transitions rather than inline styles
+    // Add show class to trigger the CSS transition
     setTimeout(() => {
-      messageEl.style.opacity = '1';
-      messageEl.style.transform = 'translateX(0)';
+      messageEl.classList.add('show');
     }, 10);
     
+    // Remove after the notification has been displayed
     setTimeout(() => {
-      messageEl.style.opacity = '0';
-      messageEl.style.transform = 'translateX(20px)';
+      messageEl.classList.remove('show');
       setTimeout(() => {
         if (document.body.contains(messageEl)) {
           document.body.removeChild(messageEl);

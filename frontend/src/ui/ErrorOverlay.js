@@ -25,7 +25,7 @@ export function createErrorOverlay() {
     return {
       show: (message) => {
         document.getElementById('error-message').textContent = message;
-        overlay.style.display = 'flex';
+        overlay.style.display = '';
       },
       hide: () => {
         overlay.style.display = 'none';
