@@ -1,7 +1,8 @@
-// VisualizerUtils.js
-// Utility functions for the audio visualizer
+// src/three/utils/VisualizerUtils.js
+// Utility functions for the audio visualizer with improved authentication handling
 
 import { createErrorOverlay as createErrorUI, showMessage as showMessageUI, showReauthPrompt } from '../../ui/ErrorOverlay.js';
+import { refreshAccessToken, redirectToLogin, clearTokens } from '../../auth/handleAuth.js';
 
 /**
  * Detect beats in the audio based on Spotify analysis data
@@ -131,22 +132,93 @@ export function createErrorOverlay() {
   return createErrorUI();
 }
   
-  /**
-   * Wait for Spotify SDK to load
-   * @returns {Promise} - Resolves when SDK is ready
-   */
-  export function waitForSpotifySDK() {
-    return new Promise(resolve => {
-      if (window.Spotify) {
-        resolve();
-      } else {
-        window.onSpotifyWebPlaybackSDKReady = () => {
-          resolve();
-        };
+/**
+ * Wait for Spotify SDK to load
+ * @returns {Promise} - Resolves when SDK is ready
+ */
+export function waitForSpotifySDK() {
+  return new Promise((resolve, reject) => {
+    // Set timeout for SDK loading
+    const timeout = setTimeout(() => {
+      reject(new Error('Spotify SDK loading timed out after 10 seconds'));
+    }, 10000);
+    
+    // If SDK is already loaded, resolve immediately
+    if (window.Spotify) {
+      clearTimeout(timeout);
+      resolve();
+      return;
+    }
+    
+    // Otherwise, setup callback for when SDK loads
+    window.spotifySDKCallback = () => {
+      clearTimeout(timeout);
+      resolve();
+    };
+    
+    // Also use the Spotify callback mechanism
+    window.onSpotifyWebPlaybackSDKReady = () => {
+      clearTimeout(timeout);
+      if (window.spotifySDKCallback) {
+        window.spotifySDKCallback();
       }
-    });
+      resolve();
+    };
+  });
+}
+
+/**
+ * Check if an error is an authentication error
+ * @param {Error} error - Error object
+ * @returns {boolean} - True if this is an auth error
+ */
+export function isAuthError(error) {
+  if (!error) return false;
+  
+  // Check response status
+  if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+    return true;
   }
   
+  // Check error message
+  const errorMessage = error.message || '';
+  return errorMessage.includes('authentication') || 
+         errorMessage.includes('token') ||
+         errorMessage.includes('authorization') ||
+         errorMessage.includes('auth') ||
+         errorMessage.includes('expired') ||
+         errorMessage.includes('permissions');
+}
+
+/**
+ * Handle authentication error with appropriate actions
+ * @param {Error} error - Error object
+ * @returns {Promise<boolean>} - Whether the error was handled
+ */
+export async function handleAuthError(error) {
+  if (!isAuthError(error)) {
+    return false;
+  }
+  
+  console.log('Handling authentication error:', error.message || error);
+  
+  // Try to refresh the token first
+  try {
+    const newToken = await refreshAccessToken();
+    
+    if (newToken) {
+      console.log('Token refreshed successfully');
+      return true;
+    }
+  } catch (refreshError) {
+    console.error('Error refreshing token:', refreshError);
+  }
+  
+  // If refresh fails, show re-auth prompt
+  showAuthError('Authentication error. Please re-authenticate with Spotify.');
+  return true;
+}
+
 /**
  * Show error message
  * @param {string} message - Error message to display
@@ -175,31 +247,31 @@ export function showError(message) {
  * @param {string} message - Error message
  */
 export function showAuthError(message) {
-  showReauthPrompt();
-}
-
-/**
- * Check if an error is an authentication error
- * @param {Error} error - Error object
- * @returns {boolean} - True if this is an auth error
- */
-export function isAuthError(error) {
-  if (!error) return false;
+  const overlay = showReauthPrompt();
   
-  // Check response status
-  if (error.response && error.response.status === 403) {
-    return true;
+  // Add event listener to re-auth button if not already added
+  const reAuthButton = document.getElementById('reauth-button');
+  if (reAuthButton && !reAuthButton.hasEventListener) {
+    reAuthButton.addEventListener('click', () => {
+      // Clear tokens and redirect to login
+      clearTokens();
+      redirectToLogin();
+    });
+    reAuthButton.hasEventListener = true;
   }
   
-  // Check error message
-  const errorMessage = error.message || '';
-  return errorMessage.includes('authentication') || 
-         errorMessage.includes('token') ||
-         errorMessage.includes('authorization') ||
-         errorMessage.includes('403') ||
-         errorMessage.includes('permissions');
+  // Add event listener to cancel button if not already added
+  const cancelButton = document.getElementById('reauth-cancel');
+  if (cancelButton && !cancelButton.hasEventListener) {
+    cancelButton.addEventListener('click', () => {
+      if (overlay && overlay.parentNode) {
+        overlay.parentNode.removeChild(overlay);
+      }
+    });
+    cancelButton.hasEventListener = true;
+  }
 }
-  
+
 /**
  * Show message notification 
  * @param {string} message - Message to display
@@ -208,35 +280,44 @@ export function isAuthError(error) {
 export function showMessage(message, timeout = 5000) {
   showMessageUI(message, timeout);
 }
-  
-  /**
-   * Add visualization controls to the UI
-   * @param {Function} onModeChange - Callback when mode changes
-   */
-  export function addVisualizationControls(onModeChange) {
-    const controls = document.createElement('div');
-    controls.id = 'visualization-controls';
-    controls.innerHTML = `
-      <div class="viz-buttons">
-        <button class="viz-button active" data-mode="bars">Bars</button>
-        <button class="viz-button" data-mode="particles">Particles</button>
-        <button class="viz-button" data-mode="waveform">Waveform</button>
-      </div>
-    `;
-    
-    document.body.appendChild(controls);
-    
-    // Add event listeners
-    document.querySelectorAll('.viz-button').forEach(button => {
-      button.addEventListener('click', () => {
-        // Update active state
-        document.querySelectorAll('.viz-button').forEach(b => b.classList.remove('active'));
-        button.classList.add('active');
-        
-        // Change visualization mode
-        if (onModeChange) {
-          onModeChange(button.dataset.mode);
-        }
-      });
-    });
+
+/**
+ * Add visualization controls to the UI
+ * @param {Function} onModeChange - Callback when mode changes
+ */
+export function addVisualizationControls(onModeChange) {
+  // Remove existing controls if present
+  const existingControls = document.getElementById('visualization-controls');
+  if (existingControls) {
+    existingControls.remove();
   }
+  
+  // Create new controls
+  const controls = document.createElement('div');
+  controls.id = 'visualization-controls';
+  controls.innerHTML = `
+    <div class="viz-buttons">
+      <button class="viz-button active" data-mode="bars">Bars</button>
+      <button class="viz-button" data-mode="particles">Particles</button>
+      <button class="viz-button" data-mode="waveform">Waveform</button>
+    </div>
+  `;
+  
+  document.body.appendChild(controls);
+  
+  // Add event listeners
+  document.querySelectorAll('.viz-button').forEach(button => {
+    button.addEventListener('click', () => {
+      // Update active state
+      document.querySelectorAll('.viz-button').forEach(b => b.classList.remove('active'));
+      button.classList.add('active');
+      
+      // Change visualization mode
+      if (onModeChange) {
+        onModeChange(button.dataset.mode);
+      }
+    });
+  });
+  
+  return controls;
+}

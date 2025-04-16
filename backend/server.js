@@ -9,7 +9,7 @@ dotenv.config();
 // Create Express app
 const app = express();
 const PORT = process.env.PORT || 8888;
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://127.0.0.1:5173';
 
 // Middleware
 app.use(express.json()); // Parse JSON request bodies
@@ -59,6 +59,6 @@ app.use((err, req, res, next) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+  console.log(`Server running at http://127.0.0.1:${PORT}`);
   console.log(`Connected to frontend at ${FRONTEND_URL}`);
 });

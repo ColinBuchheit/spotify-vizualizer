@@ -23,7 +23,8 @@ document.addEventListener('DOMContentLoaded', () => {
     showVisualizer(accessToken);
   } else if (isAuthenticated()) {
     // User has a stored valid token
-    showVisualizer(getAccessTokenFromUrl());
+    const storedToken = localStorage.getItem('spotify_access_token');
+    showVisualizer(storedToken);
   } else {
     // User is not authenticated, show login screen
     showLoginScreen();

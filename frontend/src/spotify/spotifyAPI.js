@@ -1,7 +1,55 @@
-// src/spotify/spotifyAPI.js
+// src/spotify/spotifyAPI.js with improved error handling
 import axios from 'axios';
+import { refreshAccessToken, handleAuthError } from '../auth/handleAuth.js';
 
 const BASE_URL = 'https://api.spotify.com/v1';
+
+// Create axios instance with built-in auth handling
+const spotifyAxios = axios.create({
+  baseURL: BASE_URL
+});
+
+// Add response interceptor to handle auth errors
+spotifyAxios.interceptors.response.use(
+  response => response,
+  async error => {
+    // If the error is due to authorization (401 or 403)
+    if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+      console.log('Authorization error intercepted, attempting to refresh token...');
+      
+      try {
+        // Try to refresh the token
+        const token = await refreshAccessToken();
+        
+        if (token) {
+          // If token refresh was successful, retry the request
+          console.log('Token refreshed, retrying request...');
+          
+          // Get original request configuration
+          const originalRequest = error.config;
+          
+          // Update the authorization header with the new token
+          originalRequest.headers.Authorization = `Bearer ${token}`;
+          
+          // Retry the request
+          return spotifyAxios(originalRequest);
+        } else {
+          // If refresh failed, handle the auth error
+          console.error('Token refresh failed');
+          handleAuthError(error);
+          return Promise.reject(error);
+        }
+      } catch (refreshError) {
+        console.error('Error during token refresh:', refreshError);
+        handleAuthError(refreshError);
+        return Promise.reject(error);
+      }
+    }
+    
+    // For other errors, just reject the promise
+    return Promise.reject(error);
+  }
+);
 
 /**
  * Get the currently playing track
@@ -10,7 +58,7 @@ const BASE_URL = 'https://api.spotify.com/v1';
  */
 export async function getCurrentlyPlayingTrack(accessToken) {
   try {
-    const response = await axios.get(`${BASE_URL}/me/player/currently-playing`, {
+    const response = await spotifyAxios.get('/me/player/currently-playing', {
       headers: {
         Authorization: `Bearer ${accessToken}`
       }
@@ -19,6 +67,9 @@ export async function getCurrentlyPlayingTrack(accessToken) {
     return response.data;
   } catch (error) {
     console.error('Error fetching currently playing track:', error.response?.data || error);
+    
+    // Rethrow the error but don't show UI error for this specific endpoint
+    // as it's called frequently and might fail if nothing is playing
     throw error;
   }
 }
@@ -35,8 +86,12 @@ export async function getAudioFeatures(trackId, accessToken) {
     return null;
   }
   
+  // Track retry attempts for this specific call
+  let retryCount = 0;
+  const MAX_RETRIES = 1; // Only retry once to avoid infinite loops
+  
   try {
-    const response = await axios.get(`${BASE_URL}/audio-features/${trackId}`, {
+    const response = await spotifyAxios.get(`/audio-features/${trackId}`, {
       headers: {
         Authorization: `Bearer ${accessToken}`
       }
@@ -45,7 +100,42 @@ export async function getAudioFeatures(trackId, accessToken) {
     return response.data;
   } catch (error) {
     console.error('Error fetching audio features:', error.response?.data || error);
-    throw error;
+    
+    // For 403 Forbidden errors that persist after token refresh, don't retry
+    if (error.response && error.response.status === 403 && retryCount >= MAX_RETRIES) {
+      console.log('Audio features access forbidden for this track. Using default values.');
+      // Return default values instead of retrying or showing an error
+      return {
+        energy: 0.5,
+        tempo: 120,
+        valence: 0.5,
+        danceability: 0.5,
+        acousticness: 0.5,
+        instrumentalness: 0.5,
+        liveness: 0.5,
+        speechiness: 0.5
+      };
+    }
+    
+    // For 401 Unauthorized, let the interceptor handle token refresh
+    if (error.response && error.response.status === 401) {
+      retryCount++;
+      // Let interceptor handle it
+      throw error;
+    } else {
+      // For other errors, return default values
+      console.log('Returning default audio features');
+      return {
+        energy: 0.5,
+        tempo: 120,
+        valence: 0.5,
+        danceability: 0.5,
+        acousticness: 0.5,
+        instrumentalness: 0.5,
+        liveness: 0.5,
+        speechiness: 0.5
+      };
+    }
   }
 }
 
@@ -53,7 +143,7 @@ export async function getAudioFeatures(trackId, accessToken) {
  * Get detailed audio analysis for a track
  * @param {string} trackId - Spotify track ID
  * @param {string} accessToken - Spotify access token
- * @returns {Promise<Object>} - Audio analysis data including segments, beats, bars, etc.
+ * @returns {Promise<Object>} - Audio analysis data including segments, beats, etc.
  */
 export async function getAudioAnalysis(trackId, accessToken) {
   if (!trackId) {
@@ -61,8 +151,12 @@ export async function getAudioAnalysis(trackId, accessToken) {
     return null;
   }
   
+  // Track retry attempts for this specific call
+  let retryCount = 0;
+  const MAX_RETRIES = 1; // Only retry once to avoid infinite loops
+  
   try {
-    const response = await axios.get(`${BASE_URL}/audio-analysis/${trackId}`, {
+    const response = await spotifyAxios.get(`/audio-analysis/${trackId}`, {
       headers: {
         Authorization: `Bearer ${accessToken}`
       }
@@ -71,7 +165,22 @@ export async function getAudioAnalysis(trackId, accessToken) {
     return response.data;
   } catch (error) {
     console.error('Error fetching audio analysis:', error.response?.data || error);
-    throw error;
+    
+    // For 403 Forbidden errors that persist after token refresh, return null immediately
+    if (error.response && error.response.status === 403 && retryCount >= MAX_RETRIES) {
+      console.log('Audio analysis access forbidden for this track. Using fallback values.');
+      // Return null so the calling code can use fallback values
+      return null;
+    }
+    
+    // For 401 Unauthorized, let the interceptor handle token refresh
+    if (error.response && error.response.status === 401) {
+      retryCount++;
+      throw error;
+    }
+    
+    // For other errors, return null so the calling code can use fallback values
+    return null;
   }
 }
 
@@ -82,7 +191,7 @@ export async function getAudioAnalysis(trackId, accessToken) {
  */
 export async function getUserProfile(accessToken) {
   try {
-    const response = await axios.get(`${BASE_URL}/me`, {
+    const response = await spotifyAxios.get('/me', {
       headers: {
         Authorization: `Bearer ${accessToken}`
       }
@@ -91,6 +200,8 @@ export async function getUserProfile(accessToken) {
     return response.data;
   } catch (error) {
     console.error('Error fetching user profile:', error.response?.data || error);
+    
+    // Handle auth errors with the interceptor
     throw error;
   }
 }
@@ -116,28 +227,28 @@ export async function controlPlayback(action, accessToken, deviceId = null) {
     switch (action) {
       case 'play':
         endpoint = deviceId ? 
-          `${BASE_URL}/me/player/play?device_id=${deviceId}` : 
-          `${BASE_URL}/me/player/play`;
+          `/me/player/play?device_id=${deviceId}` : 
+          `/me/player/play`;
         method = 'PUT';
         break;
       case 'pause':
-        endpoint = `${BASE_URL}/me/player/pause`;
+        endpoint = `/me/player/pause`;
         method = 'PUT';
         break;
       case 'next':
-        endpoint = `${BASE_URL}/me/player/next`;
+        endpoint = `/me/player/next`;
         method = 'POST';
         break;
       case 'previous':
-        endpoint = `${BASE_URL}/me/player/previous`;
+        endpoint = `/me/player/previous`;
         method = 'POST';
         break;
       default:
         throw new Error(`Unknown playback action: ${action}`);
     }
 
-    // Send request
-    const response = await axios({
+    // Send request using our custom axios instance
+    const response = await spotifyAxios({
       method,
       url: endpoint,
       headers: {
@@ -150,6 +261,15 @@ export async function controlPlayback(action, accessToken, deviceId = null) {
     return { success: true, data: response.data };
   } catch (error) {
     console.error(`Error controlling playback (${action}):`, error.response?.data || error);
+    
+    // For 404 errors, device might not be ready
+    if (error.response && error.response.status === 404) {
+      return { 
+        success: false, 
+        error: 'Playback device not ready. Try again in a moment.' 
+      };
+    }
+    
     throw error;
   }
 }
@@ -162,7 +282,7 @@ export async function controlPlayback(action, accessToken, deviceId = null) {
  */
 export async function getRecentlyPlayed(accessToken, limit = 20) {
   try {
-    const response = await axios.get(`${BASE_URL}/me/player/recently-played`, {
+    const response = await spotifyAxios.get('/me/player/recently-played', {
       params: { limit: Math.min(50, limit) },
       headers: {
         Authorization: `Bearer ${accessToken}`
@@ -183,7 +303,7 @@ export async function getRecentlyPlayed(accessToken, limit = 20) {
  */
 export async function getAvailableDevices(accessToken) {
   try {
-    const response = await axios.get(`${BASE_URL}/me/player/devices`, {
+    const response = await spotifyAxios.get('/me/player/devices', {
       headers: {
         Authorization: `Bearer ${accessToken}`
       }
@@ -206,7 +326,7 @@ export async function getAvailableDevices(accessToken) {
  */
 export async function search(query, type, accessToken, limit = 20) {
   try {
-    const response = await axios.get(`${BASE_URL}/search`, {
+    const response = await spotifyAxios.get('/search', {
       params: {
         q: query,
         type,

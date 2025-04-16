@@ -1,3 +1,5 @@
+// Modified backend/routes/auth.js
+
 const express = require('express');
 const axios = require('axios');
 const qs = require('querystring');
@@ -10,7 +12,7 @@ const {
   SPOTIFY_CLIENT_ID,
   SPOTIFY_CLIENT_SECRET,
   SPOTIFY_REDIRECT_URI,
-  FRONTEND_URL = 'http://localhost:5173'
+  FRONTEND_URL = 'http://127.0.0.1:5173'
 } = process.env;
 
 // Validate required environment variables
@@ -24,7 +26,8 @@ if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET || !SPOTIFY_REDIRECT_URI) {
  * Redirect to Spotify authorization page
  */
 router.get('/login', (req, res) => {
-  // Define scopes - request all necessary permissions for visualization
+  // Define scopes - IMPORTANT: Include ALL necessary permissions
+  // Adding more scopes to fix the 403 Forbidden errors
   const scope = [
     'user-read-private',
     'user-read-email',
@@ -33,7 +36,13 @@ router.get('/login', (req, res) => {
     'user-read-currently-playing',
     'streaming',
     'user-read-recently-played',
-    'user-read-playback-position'
+    'user-read-playback-position',
+    // Additional scopes needed for audio features and analysis
+    'user-read-playback-position',
+    'user-top-read',
+    'playlist-read-private',
+    'playlist-read-collaborative',
+    'app-remote-control'
   ].join(' ');
 
   // Build authorization URL
@@ -42,7 +51,7 @@ router.get('/login', (req, res) => {
     client_id: SPOTIFY_CLIENT_ID,
     scope,
     redirect_uri: SPOTIFY_REDIRECT_URI,
-    show_dialog: true // Force login dialog for testing
+    show_dialog: true // Force login dialog to ensure proper permissions
   });
   
   res.redirect(`https://accounts.spotify.com/authorize?${params}`);
@@ -57,7 +66,7 @@ router.get('/callback', async (req, res) => {
 
   // If user denied access
   if (error) {
-    return res.redirect(`${FRONTEND_URL}?error=access_denied`);
+    return res.redirect(`${FRONTEND_URL}?error=access_denied&message=${error}`);
   }
 
   // Exchange code for tokens
@@ -79,17 +88,21 @@ router.get('/callback', async (req, res) => {
       }
     );
 
-    const { access_token, refresh_token, expires_in } = response.data;
+    const { access_token, refresh_token, expires_in, scope } = response.data;
 
     // Redirect to frontend with tokens as URL parameters
-    // NOTE: In a production environment, you should use secure httpOnly cookies
-    // or a token exchange mechanism instead of exposing tokens in the URL
     res.redirect(
-      `${FRONTEND_URL}?access_token=${access_token}&refresh_token=${refresh_token}&expires_in=${expires_in}`
+      `${FRONTEND_URL}?access_token=${access_token}&refresh_token=${refresh_token}&expires_in=${expires_in}&scope=${encodeURIComponent(scope || '')}`
     );
   } catch (error) {
     console.error('Token exchange error:', error.response?.data || error.message);
-    res.redirect(`${FRONTEND_URL}?error=authentication_failed`);
+    
+    // Provide more detailed error information
+    const errorMsg = error.response?.data?.error_description || 
+                     error.response?.data?.error || 
+                     'authentication_failed';
+    
+    res.redirect(`${FRONTEND_URL}?error=authentication_failed&message=${encodeURIComponent(errorMsg)}`);
   }
 });
 
@@ -120,15 +133,63 @@ router.post('/refresh_token', async (req, res) => {
       }
     );
 
-    const { access_token, expires_in } = response.data;
+    // Get all returned data including any new refresh token
+    const { access_token, expires_in, refresh_token: new_refresh_token, scope } = response.data;
     
+    // Return all data including potential new refresh token
     res.json({
       access_token,
-      expires_in
+      expires_in,
+      refresh_token: new_refresh_token || refresh_token,
+      scope
     });
   } catch (error) {
     console.error('Refresh token error:', error.response?.data || error.message);
-    res.status(401).json({ error: 'Failed to refresh token' });
+    
+    // Return detailed error for debugging
+    res.status(401).json({ 
+      error: 'Failed to refresh token', 
+      details: error.response?.data || error.message
+    });
+  }
+});
+
+/**
+ * Check token validity
+ */
+router.post('/validate_token', async (req, res) => {
+  const { access_token } = req.body;
+  
+  if (!access_token) {
+    return res.status(400).json({ error: 'Access token is required' });
+  }
+  
+  try {
+    // Test with a basic profile request
+    const response = await axios.get('https://api.spotify.com/v1/me', {
+      headers: {
+        Authorization: `Bearer ${access_token}`
+      }
+    });
+    
+    // If successful, token is valid
+    res.json({ 
+      valid: true, 
+      user: {
+        id: response.data.id,
+        display_name: response.data.display_name,
+        email: response.data.email,
+        product: response.data.product // 'premium' or 'free'
+      }
+    });
+  } catch (error) {
+    console.error('Token validation error:', error.response?.data || error.message);
+    
+    // Token is invalid or expired
+    res.json({ 
+      valid: false, 
+      error: error.response?.data?.error || 'Unknown error'
+    });
   }
 });
 
