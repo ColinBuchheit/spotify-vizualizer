@@ -9,15 +9,21 @@ let playerInitResolver = null;
 /**
  * Initialize the Spotify Player SDK
  * This function is called when the SDK script is loaded
+ * The onSpotifyWebPlaybackSDKReady function now needs to be defined globally in index.html
  */
-window.onSpotifyWebPlaybackSDKReady = () => {
-  console.log('Spotify Web Playback SDK is ready');
-  
-  // Resolve the promise if setupSpotifyPlayer was already called
-  if (playerInitResolver) {
-    playerInitResolver();
+export function setupGlobalSpotifyCallback() {
+  // Check if callback is already defined
+  if (typeof window.onSpotifyWebPlaybackSDKReady !== 'function') {
+    window.onSpotifyWebPlaybackSDKReady = function() {
+      console.log('Spotify Web Playback SDK is ready');
+      
+      // Resolve the promise if setupSpotifyPlayer was already called
+      if (playerInitResolver) {
+        playerInitResolver();
+      }
+    };
   }
-};
+}
 
 /**
  * Set up Spotify Web Playback SDK
@@ -28,6 +34,9 @@ export async function setupSpotifyPlayer(accessToken) {
   if (!accessToken) {
     throw new Error('Access token is required to initialize Spotify player');
   }
+
+  // Ensure the global callback is set up
+  setupGlobalSpotifyCallback();
 
   // Create a promise that will be resolved when the SDK is ready
   if (!playerInitPromise) {

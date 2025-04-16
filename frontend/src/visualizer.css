@@ -160,6 +160,12 @@
   margin-bottom: 20px;
 }
 
+.error-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
 .error-container button {
   background-color: #1db954;
   border: none;
@@ -175,6 +181,94 @@
 .error-container button:hover {
   background-color: #1ed760;
   transform: scale(1.05);
+}
+
+/* Re-authentication Overlay */
+.reauth-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+}
+
+.reauth-container {
+  background-color: #282828;
+  padding: 30px;
+  border-radius: 10px;
+  text-align: center;
+  max-width: 90%;
+  width: 400px;
+  color: white;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+  border-left: 4px solid #1db954;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.reauth-container h2 {
+  color: #1db954;
+  margin-top: 0;
+  margin-bottom: 15px;
+}
+
+.reauth-container p {
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+.reauth-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+  margin-top: 20px;
+}
+
+#reauth-button {
+  background-color: #1db954;
+  border: none;
+  border-radius: 30px;
+  color: white;
+  padding: 12px 24px;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: bold;
+  transition: all 0.2s ease;
+}
+
+#reauth-button:hover {
+  background-color: #1ed760;
+  transform: scale(1.05);
+}
+
+#reauth-cancel {
+  background-color: transparent;
+  border: 2px solid #6c6c6c;
+  border-radius: 30px;
+  color: white;
+  padding: 12px 24px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.2s ease;
+}
+
+#reauth-cancel:hover {
+  background-color: rgba(255, 255, 255, 0.1);
 }
 
 /* Messages */
@@ -204,6 +298,31 @@
 .message-notification.show {
   opacity: 1 !important;
   transform: translateY(0) !important;
+}
+
+/* Toast Message */
+.toast-message {
+  position: fixed;
+  bottom: 30px;
+  right: 30px;
+  background: rgba(40, 40, 40, 0.9);
+  color: white;
+  padding: 12px 20px;
+  border-radius: 8px;
+  z-index: 1000;
+  font-size: 14px;
+  transition: transform 0.3s, opacity 0.3s;
+  transform: translateY(20px);
+  opacity: 0;
+  max-width: 350px;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  border-left: 4px solid #1db954;
+}
+
+.toast-message.visible {
+  transform: translateY(0);
+  opacity: 1;
 }
 
 /* Animations */
@@ -239,6 +358,12 @@
   .viz-button {
     padding: 6px 12px;
     font-size: 12px;
+  }
+
+  .reauth-container,
+  .error-container {
+    width: 90%;
+    padding: 20px;
   }
 }
 

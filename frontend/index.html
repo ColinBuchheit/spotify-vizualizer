@@ -6,7 +6,16 @@
     <title>Spotify 3D Visualizer</title>
     <meta name="description" content="Experience your Spotify music in 3D with real-time WebGL visualizations">
     
-    <!-- Spotify Web Playback SDK -->
+    <script>
+      // Define the Spotify callback function before loading the SDK
+      window.onSpotifyWebPlaybackSDKReady = function() {
+        console.log('Spotify Web Playback SDK is ready');
+        // This will be used by the setupSpotifyPlayer function
+        if (window.spotifySDKCallback) {
+          window.spotifySDKCallback();
+        }
+      };
+    </script>
     <script src="https://sdk.scdn.co/spotify-player.js"></script>
     
     <!-- Font -->

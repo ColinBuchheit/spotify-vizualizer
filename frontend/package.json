@@ -14,8 +14,13 @@
     "vite": "^6.2.0"
   },
   "dependencies": {
+    "@react-three/drei": "^10.0.6",
+    "@react-three/fiber": "^9.1.2",
     "axios": "^1.8.4",
     "dotenv": "^16.4.7",
-    "three": "^0.175.0"
+    "gsap": "^3.12.7",
+    "postprocessing": "^6.37.2",
+    "three": "^0.175.0",
+    "troika-three-text": "^0.52.4"
   }
 }

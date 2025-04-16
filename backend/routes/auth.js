@@ -24,14 +24,16 @@ if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET || !SPOTIFY_REDIRECT_URI) {
  * Redirect to Spotify authorization page
  */
 router.get('/login', (req, res) => {
-  // Define scopes - request only what we need
+  // Define scopes - request all necessary permissions for visualization
   const scope = [
     'user-read-private',
     'user-read-email',
     'user-read-playback-state',
     'user-modify-playback-state',
     'user-read-currently-playing',
-    'streaming'
+    'streaming',
+    'user-read-recently-played',
+    'user-read-playback-position'
   ].join(' ');
 
   // Build authorization URL

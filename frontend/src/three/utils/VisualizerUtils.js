@@ -1,6 +1,8 @@
 // VisualizerUtils.js
 // Utility functions for the audio visualizer
 
+import { createErrorOverlay as createErrorUI, showMessage as showMessageUI, showReauthPrompt } from '../../ui/ErrorOverlay.js';
+
 /**
  * Detect beats in the audio based on Spotify analysis data
  * @param {number} time - Current animation time
@@ -121,37 +123,13 @@ export function detectBeats(time, beats, lastBeatTime, currentTempo, energy, isP
     return energy * pulsing;
   }
   
-  /**
-   * Create error overlay for displaying errors
-   * @returns {Object} - Error overlay object with show/hide methods
-   */
-  export function createErrorOverlay() {
-    const overlay = document.createElement('div');
-    overlay.id = 'error-overlay';
-    overlay.style.display = 'none';
-    overlay.innerHTML = `
-      <div class="error-container">
-        <h2 style="margin-top: 0; color: #e61e32; font-size: 18px;">Error</h2>
-        <p id="error-message" style="margin-bottom: 15px; font-size: 14px;"></p>
-        <div style="display: flex; justify-content: flex-end; gap: 10px;">
-          <button id="error-close" style="background: transparent; border: 1px solid #666; color: white; padding: 6px 12px; border-radius: 4px; cursor: pointer;">Dismiss</button>
-          <button id="error-retry" style="background: #1db954; border: none; color: white; padding: 6px 12px; border-radius: 4px; cursor: pointer;">Retry</button>
-        </div>
-      </div>
-    `;
-    
-    document.body.appendChild(overlay);
-    
-    document.getElementById('error-close').addEventListener('click', () => {
-      overlay.style.display = 'none';
-    });
-    
-    document.getElementById('error-retry').addEventListener('click', () => {
-      window.location.reload();
-    });
-    
-    return overlay;
-  }
+/**
+ * Create error overlay - for backward compatibility
+ * @returns {Object} - Error overlay object with show/hide methods
+ */
+export function createErrorOverlay() {
+  return createErrorUI();
+}
   
   /**
    * Wait for Spotify SDK to load
@@ -169,71 +147,67 @@ export function detectBeats(time, beats, lastBeatTime, currentTempo, energy, isP
     });
   }
   
-  /**
-   * Show error message
-   * @param {string} message - Error message to display
-   */
-  export function showError(message) {
-    const errorOverlay = document.getElementById('error-overlay') || createErrorOverlay();
-    const errorMessage = document.getElementById('error-message');
-    errorMessage.textContent = message;
-    errorOverlay.style.display = 'flex';
-    
-    // Auto-dismiss after 10 seconds for non-critical errors
-    if (!message.includes('Failed to initialize') && 
-        !message.includes('Authentication failed') && 
-        !message.includes('Premium required')) {
-      setTimeout(() => {
-        if (errorOverlay.style.display === 'flex') {
-          errorOverlay.style.display = 'none';
-        }
-      }, 10000);
-    }
+/**
+ * Show error message
+ * @param {string} message - Error message to display
+ */
+export function showError(message) {
+  const errorOverlay = document.getElementById('error-overlay') || createErrorOverlay();
+  
+  // Check if this is an authentication error
+  if (message.includes('Authentication failed') || 
+      message.includes('access token') ||
+      message.includes('token expired') ||
+      message.includes('authorization') ||
+      message.includes('403') ||
+      message.includes('permissions')) {
+    // Show re-authentication prompt for auth errors
+    showAuthError(message);
+    return;
   }
   
-  /**
-   * Show message notification
-   * @param {string} message - Message to display
-   */
-  export function showMessage(message) {
-    // Remove any existing notifications to prevent stacking
-    const existingNotifications = document.querySelectorAll('.message-notification');
-    existingNotifications.forEach(notification => {
-      if (document.body.contains(notification)) {
-        document.body.removeChild(notification);
-      }
-    });
-    
-    const messageEl = document.createElement('div');
-    messageEl.className = 'message-notification';
-    messageEl.textContent = message;
-    
-    // Only set minimal styling to ensure proper positioning
-    // and leave the rest to CSS
-    messageEl.style.position = 'fixed';
-    messageEl.style.top = 'auto';
-    messageEl.style.bottom = '30px';
-    messageEl.style.right = '30px';
-    messageEl.style.width = 'auto';
-    
-    document.body.appendChild(messageEl);
-    
-    // Use the CSS class for transitions rather than inline styles
-    // Add show class to trigger the CSS transition
-    setTimeout(() => {
-      messageEl.classList.add('show');
-    }, 10);
-    
-    // Remove after the notification has been displayed
-    setTimeout(() => {
-      messageEl.classList.remove('show');
-      setTimeout(() => {
-        if (document.body.contains(messageEl)) {
-          document.body.removeChild(messageEl);
-        }
-      }, 500);
-    }, 5000);
+  // For non-auth errors, use the standard error display
+  errorOverlay.show(message);
+}
+
+/**
+ * Show authentication error with re-auth prompt
+ * @param {string} message - Error message
+ */
+export function showAuthError(message) {
+  showReauthPrompt();
+}
+
+/**
+ * Check if an error is an authentication error
+ * @param {Error} error - Error object
+ * @returns {boolean} - True if this is an auth error
+ */
+export function isAuthError(error) {
+  if (!error) return false;
+  
+  // Check response status
+  if (error.response && error.response.status === 403) {
+    return true;
   }
+  
+  // Check error message
+  const errorMessage = error.message || '';
+  return errorMessage.includes('authentication') || 
+         errorMessage.includes('token') ||
+         errorMessage.includes('authorization') ||
+         errorMessage.includes('403') ||
+         errorMessage.includes('permissions');
+}
+  
+/**
+ * Show message notification 
+ * @param {string} message - Message to display
+ * @param {number} timeout - Optional timeout in ms
+ */
+export function showMessage(message, timeout = 5000) {
+  showMessageUI(message, timeout);
+}
   
   /**
    * Add visualization controls to the UI

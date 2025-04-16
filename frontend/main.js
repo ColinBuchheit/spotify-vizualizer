@@ -3,6 +3,17 @@ import './src/visualizer.css';
 import { initVisualizer } from './src/three/index.js';
 import { getAccessTokenFromUrl, isAuthenticated, redirectToLogin } from './src/auth/handleAuth.js';
 
+// Define the Spotify callback globally if not already defined in index.html
+if (typeof window.onSpotifyWebPlaybackSDKReady !== 'function') {
+  window.onSpotifyWebPlaybackSDKReady = function() {
+    console.log('Spotify Web Playback SDK is ready');
+    // This will be used by the setupSpotifyPlayer function
+    if (window.spotifySDKCallback) {
+      window.spotifySDKCallback();
+    }
+  };
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   // Check if we received tokens from authentication or have valid stored tokens
   const accessToken = getAccessTokenFromUrl();
