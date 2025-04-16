@@ -195,7 +195,10 @@ async function setupSpotifyPlayer(accessToken) {
   // Error handling
   player.addListener('initialization_error', ({ message }) => {
     console.error('Failed to initialize player:', message);
-    showError('Failed to initialize Spotify player. Please try again.');
+    // Only show error if it contains meaningful information
+    if (!message.includes('robustness') && !message.includes('404')) {
+      showError('Failed to initialize Spotify player. Please try again.');
+    }
   });
   
   player.addListener('authentication_error', ({ message }) => {
@@ -210,7 +213,10 @@ async function setupSpotifyPlayer(accessToken) {
   
   player.addListener('playback_error', ({ message }) => {
     console.error('Playback error:', message);
-    showError('Playback error. Please try again or check your connection.');
+    // Don't show error if it seems to be a common Spotify API error
+    if (!message.includes('404') && !message.includes('403')) {
+      showError('Playback error. Please try again or check your connection.');
+    }
   });
 
   // Connect player
@@ -389,30 +395,46 @@ function setupVolumeControl() {
  * @param {string} trackId - Spotify track ID
  * @param {string} accessToken - Spotify access token
  */
-async function fetchTrackAnalysis(trackId, accessToken) {
+  async function fetchTrackAnalysis(trackId, accessToken) {
   try {
-    // Get audio features (high-level data about the track)
-    const features = await getAudioFeatures(trackId, accessToken);
-    if (features) {
-      currentAudioFeatures = features;
-      energyValue = features.energy;
-      currentTempo = features.tempo;
-      console.log('Audio features:', features);
+    try {
+      // Get audio features (high-level data about the track)
+      const features = await getAudioFeatures(trackId, accessToken);
+      if (features) {
+        currentAudioFeatures = features;
+        energyValue = features.energy;
+        currentTempo = features.tempo;
+        console.log('Audio features:', features);
+      }
+    } catch (featuresError) {
+      console.error('Error fetching audio features:', featuresError);
+      // Continue with default values instead of showing an error
+      energyValue = 0.5;
+      currentTempo = 120;
     }
     
-    // Get detailed audio analysis (beat/segment data)
-    const analysis = await getAudioAnalysis(trackId, accessToken);
-    if (analysis) {
-      currentTrackAnalysis = analysis;
-      segments = analysis.segments || [];
-      beats = analysis.beats || [];
-      tatums = analysis.tatums || [];
-      segmentIndex = 0;
-      console.log('Audio analysis:', analysis);
+    try {
+      // Get detailed audio analysis (beat/segment data)
+      const analysis = await getAudioAnalysis(trackId, accessToken);
+      if (analysis) {
+        currentTrackAnalysis = analysis;
+        segments = analysis.segments || [];
+        beats = analysis.beats || [];
+        tatums = analysis.tatums || [];
+        segmentIndex = 0;
+        console.log('Audio analysis:', analysis);
+      }
+    } catch (analysisError) {
+      console.error('Error fetching audio analysis:', analysisError);
+      // Continue with empty arrays instead of showing an error
+      segments = [];
+      beats = [];
+      tatums = [];
     }
   } catch (error) {
-    console.error('Error fetching audio data:', error);
-    showError('Could not load audio analysis. This may affect visualization quality.');
+    console.error('Error in track analysis process:', error);
+    // Only show error once instead of for each API call
+    showError('Could not load audio analysis. Using default values for visualization.');
   }
 }
 

@@ -1,5 +1,5 @@
 // src/ui/TrackInfo.js
-import { controlPlayback } from '../spotify/spotifyAPI.js';
+import { togglePlayPause, skipToNext, skipToPrevious } from '../spotify/spotifyPlayer.js';
 
 let lastTrackId = null;
 let isPlaying = true;
@@ -131,8 +131,12 @@ async function togglePlayback() {
     isPlaying = !isPlaying;
     updatePlayPauseButton();
     
-    // Then call the API
-    await controlPlayback(isPlaying ? 'play' : 'pause', accessToken);
+    // Then call the player SDK function
+    const success = await togglePlayPause();
+    
+    // Update UI based on actual result
+    isPlaying = success;
+    updatePlayPauseButton();
   } catch (error) {
     console.error('Error toggling playback:', error);
     // Revert UI if there was an error
@@ -147,7 +151,8 @@ async function togglePlayback() {
  */
 async function playNextTrack() {
   try {
-    await controlPlayback('next', accessToken);
+    // Call the player SDK function
+    await skipToNext();
     
     // Assume we're playing after skipping
     isPlaying = true;
@@ -163,7 +168,8 @@ async function playNextTrack() {
  */
 async function playPreviousTrack() {
   try {
-    await controlPlayback('previous', accessToken);
+    // Call the player SDK function
+    await skipToPrevious();
     
     // Assume we're playing after going to previous
     isPlaying = true;
