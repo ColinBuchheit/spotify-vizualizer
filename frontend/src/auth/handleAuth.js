@@ -5,78 +5,106 @@
  * @returns {string|null} - Spotify access token or null if not found
  */
 export function getAccessTokenFromUrl() {
-  // First try to get from URL
   const urlParams = new URLSearchParams(window.location.search);
   const accessToken = urlParams.get('access_token');
   const refreshToken = urlParams.get('refresh_token');
   const expiresIn = urlParams.get('expires_in');
-  
+  const error = urlParams.get('error');
+  const errorMessage = urlParams.get('message');
+
+  // Handle error from authentication process
+  if (error) {
+    console.error(`Authentication error: ${error}`, errorMessage);
+    showAuthErrorMessage(errorMessage || 'Failed to authenticate with Spotify');
+    return null;
+  }
+
   if (accessToken) {
-    // Store in localStorage with expiration
+    console.log('Access token received from URL');
     storeTokens(accessToken, refreshToken, expiresIn);
-    
-    // Clean up URL to remove tokens
     cleanUrl();
-    
     return accessToken;
   }
-  
-  // If not in URL, try localStorage
-  return getStoredAccessToken();
+
+  // If we have a code but no access token, that's an error case
+  // The code should be exchanged by the backend
+  if (urlParams.get('code')) {
+    console.error('Received code instead of access token - check backend redirect configuration');
+    showAuthErrorMessage('Authentication process incomplete. Please try again.');
+    return null;
+  }
+
+  return null; // Async fallback is handled in main.js
+}
+
+/**
+ * Show authentication error message to user
+ * @param {string} message - Error message to display
+ */
+function showAuthErrorMessage(message) {
+  // Create simple error message in login screen if it exists
+  const loginScreen = document.getElementById('login-screen');
+  if (loginScreen) {
+    let errorDiv = document.getElementById('error-message');
+    if (!errorDiv) {
+      errorDiv = document.createElement('div');
+      errorDiv.id = 'error-message';
+      errorDiv.className = 'error-message';
+      loginScreen.insertBefore(errorDiv, loginScreen.querySelector('#connect-button'));
+    }
+    errorDiv.textContent = message;
+    errorDiv.style.display = 'block';
+  } else {
+    alert(`Authentication Error: ${message}`);
+  }
 }
 
 /**
  * Store tokens in localStorage with expiration
- * @param {string} accessToken - Spotify access token
- * @param {string} refreshToken - Spotify refresh token
- * @param {string} expiresIn - Token expiration in seconds
+ * @param {string} accessToken
+ * @param {string} refreshToken
+ * @param {string} expiresIn
  */
 function storeTokens(accessToken, refreshToken, expiresIn) {
   if (!accessToken) return;
-  
-  // Calculate expiration time
-  const expirationTime = Date.now() + (parseInt(expiresIn) * 1000);
-  
-  // Store tokens and expiration
+
+  const expirationTime = Date.now() + parseInt(expiresIn) * 1000;
   localStorage.setItem('spotify_access_token', accessToken);
-  
   if (refreshToken) {
     localStorage.setItem('spotify_refresh_token', refreshToken);
   }
-  
   localStorage.setItem('spotify_token_expiration', expirationTime.toString());
-  
-  // Store scope to check if we have the right permissions
-  localStorage.setItem('spotify_token_scope', 'user-read-private user-read-email user-read-playback-state user-modify-playback-state user-read-currently-playing streaming user-read-recently-played user-read-playback-position');
+  localStorage.setItem(
+    'spotify_token_scope',
+    'user-read-private user-read-email user-read-playback-state user-modify-playback-state user-read-currently-playing streaming user-read-recently-played user-read-playback-position'
+  );
 }
 
 /**
- * Get stored access token if valid
- * @returns {string|null} - Spotify access token or null if not found/expired
+ * Get stored access token if valid, refresh if expired
+ * @returns {Promise<string|null>}
  */
-function getStoredAccessToken() {
+export async function getStoredAccessToken() {
   const accessToken = localStorage.getItem('spotify_access_token');
   const expirationTime = localStorage.getItem('spotify_token_expiration');
-  
+
   if (!accessToken || !expirationTime) {
     return null;
   }
-  
-  // Check if token is expired
-  if (Date.now() > parseInt(expirationTime)) {
-    // Token expired, try to refresh
+
+  const now = Date.now();
+
+  if (now > parseInt(expirationTime)) {
     console.log('Token expired, attempting to refresh...');
-    refreshAccessToken();
-    return null;
+    const newToken = await refreshAccessToken();
+    return newToken;
   }
-  
-  // Check if token will expire soon (within 5 minutes)
-  if (Date.now() > parseInt(expirationTime) - 300000) {
-    // Token will expire soon, refresh in background
+
+  if (now > parseInt(expirationTime) - 300000) {
     console.log('Token expiring soon, refreshing in background...');
-    refreshAccessToken();
+    refreshAccessToken(); // Non-blocking
   }
-  
+
   return accessToken;
 }
 
@@ -88,57 +116,57 @@ function cleanUrl() {
   url.searchParams.delete('access_token');
   url.searchParams.delete('refresh_token');
   url.searchParams.delete('expires_in');
-  
-  // Replace URL without reloading page
   window.history.replaceState({}, document.title, url.pathname + url.search);
 }
 
 /**
  * Refresh access token using stored refresh token
- * @returns {Promise<string|null>} - New access token or null if refresh failed
+ * @returns {Promise<string|null>}
  */
 export async function refreshAccessToken() {
   const refreshToken = localStorage.getItem('spotify_refresh_token');
-  
+
   if (!refreshToken) {
     console.error('No refresh token available');
     clearTokens();
     return null;
   }
-  
+
   try {
-    const response = await fetch('http://127.0.0.1:8888/auth/refresh_token', {
+    // Use dynamic server URL based on current window location
+    const baseUrl = window.location.hostname === 'localhost' ? 
+      'http://localhost:8888' : 
+      `${window.location.protocol}//${window.location.hostname}:8888`;
+    
+    const response = await fetch(`${baseUrl}/auth/refresh_token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ refresh_token: refreshToken }),
     });
-    
+
     if (!response.ok) {
       throw new Error(`Failed to refresh token: ${response.status}`);
     }
-    
+
     const data = await response.json();
-    
+
     if (!data.access_token) {
       throw new Error('No access token in refresh response');
     }
-    
-    // Store new access token
+
     storeTokens(data.access_token, refreshToken, data.expires_in || '3600');
-    
     console.log('Token refreshed successfully');
     return data.access_token;
   } catch (error) {
     console.error('Error refreshing token:', error);
-    
-    // If server returns 401 or 400, token might be invalid
+
     if (error.message && (error.message.includes('401') || error.message.includes('400'))) {
       clearTokens();
       redirectToLogin();
     }
-    
+
     return null;
   }
 }
@@ -154,42 +182,52 @@ export function clearTokens() {
 }
 
 /**
- * Check if user is authenticated
- * @returns {boolean} - True if user has a valid access token
+ * Check if user has a token (sync only)
+ * @returns {boolean}
  */
 export function isAuthenticated() {
-  return getStoredAccessToken() !== null;
+  return localStorage.getItem('spotify_access_token') !== null;
 }
 
 /**
- * Redirect to login page
+ * Redirect user to login page
  */
 export function redirectToLogin() {
-  window.location.href = 'http://127.0.0.1:8888/auth/login';
+  try {
+    // Generate the backend URL dynamically based on current frontend URL
+    const serverUrl = new URL(window.location.href).origin.replace('5173', '8888');
+    window.location.href = `${serverUrl}/auth/login`;
+  } catch (error) {
+    // Fallback to a default URL if something goes wrong with URL parsing
+    console.warn('Error creating dynamic URL for login redirect:', error);
+    
+    // Fallback URL - try to determine based on hostname
+    const baseUrl = window.location.hostname === 'localhost' ? 
+      'http://localhost:8888' : 
+      `${window.location.protocol}//${window.location.hostname}:8888`;
+    
+    window.location.href = `${baseUrl}/auth/login`;
+  }
 }
 
 /**
- * Handle authentication error
- * @param {Error} error - Authentication error
+ * Handle authentication errors
+ * @param {Error} error
  */
 export function handleAuthError(error) {
   console.error('Authentication error:', error);
-  
-  // If it's a 403 error, we need to re-authenticate with proper scopes
+
   if (error.response && error.response.status === 403) {
     console.log('Permission error detected, clearing tokens and redirecting to login');
     clearTokens();
     redirectToLogin();
     return;
   }
-  
-  // For other errors, just try to refresh the token
+
   refreshAccessToken().then(token => {
     if (!token) {
-      // If refresh failed, redirect to login
       redirectToLogin();
     } else {
-      // Refresh succeeded, reload the page
       window.location.reload();
     }
   });

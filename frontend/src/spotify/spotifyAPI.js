@@ -13,9 +13,16 @@ const spotifyAxios = axios.create({
 spotifyAxios.interceptors.response.use(
   response => response,
   async error => {
-    // If the error is due to authorization (401 or 403)
-    if (error.response && (error.response.status === 401 || error.response.status === 403)) {
-      console.log('Authorization error intercepted, attempting to refresh token...');
+    // Only refresh token on 401 Unauthorized errors (not 403 Forbidden)
+    // 401 = invalid/expired token, 403 = valid token but insufficient permissions
+    if (error.response && error.response.status === 401) {
+      // Check if we've already tried refreshing for this request
+      if (error.config._isRetry) {
+        console.log('Already attempted refresh for this request, not retrying again');
+        return Promise.reject(error);
+      }
+      
+      console.log('Token expired (401), attempting to refresh...');
       
       try {
         // Try to refresh the token
@@ -27,6 +34,9 @@ spotifyAxios.interceptors.response.use(
           
           // Get original request configuration
           const originalRequest = error.config;
+          
+          // Mark this request as retried to prevent loops
+          originalRequest._isRetry = true;
           
           // Update the authorization header with the new token
           originalRequest.headers.Authorization = `Bearer ${token}`;
@@ -44,6 +54,13 @@ spotifyAxios.interceptors.response.use(
         handleAuthError(refreshError);
         return Promise.reject(error);
       }
+    }
+    
+    // For 403 Forbidden, don't try to refresh token - the user doesn't have permission
+    if (error.response && error.response.status === 403) {
+      console.log('Permission denied (403) - user lacks necessary permission for this resource');
+      // Just reject the promise, no retries needed
+      return Promise.reject(error);
     }
     
     // For other errors, just reject the promise
@@ -83,12 +100,8 @@ export async function getCurrentlyPlayingTrack(accessToken) {
 export async function getAudioFeatures(trackId, accessToken) {
   if (!trackId) {
     console.error('No track ID provided for audio features');
-    return null;
+    return getDefaultAudioFeatures();
   }
-  
-  // Track retry attempts for this specific call
-  let retryCount = 0;
-  const MAX_RETRIES = 1; // Only retry once to avoid infinite loops
   
   try {
     const response = await spotifyAxios.get(`/audio-features/${trackId}`, {
@@ -99,44 +112,39 @@ export async function getAudioFeatures(trackId, accessToken) {
 
     return response.data;
   } catch (error) {
-    console.error('Error fetching audio features:', error.response?.data || error);
-    
-    // For 403 Forbidden errors that persist after token refresh, don't retry
-    if (error.response && error.response.status === 403 && retryCount >= MAX_RETRIES) {
+    // For 403 Forbidden errors, immediately return default values without retrying
+    if (error.response && error.response.status === 403) {
       console.log('Audio features access forbidden for this track. Using default values.');
-      // Return default values instead of retrying or showing an error
-      return {
-        energy: 0.5,
-        tempo: 120,
-        valence: 0.5,
-        danceability: 0.5,
-        acousticness: 0.5,
-        instrumentalness: 0.5,
-        liveness: 0.5,
-        speechiness: 0.5
-      };
+      return getDefaultAudioFeatures();
     }
     
     // For 401 Unauthorized, let the interceptor handle token refresh
     if (error.response && error.response.status === 401) {
-      retryCount++;
       // Let interceptor handle it
       throw error;
-    } else {
-      // For other errors, return default values
-      console.log('Returning default audio features');
-      return {
-        energy: 0.5,
-        tempo: 120,
-        valence: 0.5,
-        danceability: 0.5,
-        acousticness: 0.5,
-        instrumentalness: 0.5,
-        liveness: 0.5,
-        speechiness: 0.5
-      };
-    }
+    } 
+    
+    // For other errors, return default values
+    console.log('Error fetching audio features. Returning default values:', error.response?.status || error.message);
+    return getDefaultAudioFeatures();
   }
+}
+
+/**
+ * Get default audio features when API call fails
+ * @returns {Object} - Default audio features
+ */
+function getDefaultAudioFeatures() {
+  return {
+    energy: 0.5,
+    tempo: 120,
+    valence: 0.5,
+    danceability: 0.5,
+    acousticness: 0.5,
+    instrumentalness: 0.5,
+    liveness: 0.5,
+    speechiness: 0.5
+  };
 }
 
 /**
@@ -150,11 +158,7 @@ export async function getAudioAnalysis(trackId, accessToken) {
     console.error('No track ID provided for audio analysis');
     return null;
   }
-  
-  // Track retry attempts for this specific call
-  let retryCount = 0;
-  const MAX_RETRIES = 1; // Only retry once to avoid infinite loops
-  
+    
   try {
     const response = await spotifyAxios.get(`/audio-analysis/${trackId}`, {
       headers: {
@@ -164,22 +168,20 @@ export async function getAudioAnalysis(trackId, accessToken) {
 
     return response.data;
   } catch (error) {
-    console.error('Error fetching audio analysis:', error.response?.data || error);
-    
-    // For 403 Forbidden errors that persist after token refresh, return null immediately
-    if (error.response && error.response.status === 403 && retryCount >= MAX_RETRIES) {
+    // For 403 Forbidden errors, immediately return null without retrying
+    if (error.response && error.response.status === 403) {
       console.log('Audio analysis access forbidden for this track. Using fallback values.');
-      // Return null so the calling code can use fallback values
       return null;
     }
     
     // For 401 Unauthorized, let the interceptor handle token refresh
     if (error.response && error.response.status === 401) {
-      retryCount++;
+      // Let interceptor handle it
       throw error;
     }
     
     // For other errors, return null so the calling code can use fallback values
+    console.log('Error fetching audio analysis. Using fallback values:', error.response?.status || error.message);
     return null;
   }
 }

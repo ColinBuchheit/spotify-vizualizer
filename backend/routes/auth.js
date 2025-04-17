@@ -29,20 +29,29 @@ router.get('/login', (req, res) => {
   // Define scopes - IMPORTANT: Include ALL necessary permissions
   // Adding more scopes to fix the 403 Forbidden errors
   const scope = [
+    // User profile and account
     'user-read-private',
     'user-read-email',
+    
+    // Playback control
     'user-read-playback-state',
     'user-modify-playback-state',
     'user-read-currently-playing',
     'streaming',
+    'app-remote-control',
+    
+    // History and data
     'user-read-recently-played',
     'user-read-playback-position',
-    // Additional scopes needed for audio features and analysis
-    'user-read-playback-position',
     'user-top-read',
+    
+    // Library and playlists
     'playlist-read-private',
     'playlist-read-collaborative',
-    'app-remote-control'
+    'user-library-read',
+    
+    // Required for audio features API access - critical for visualization
+    'user-library-modify'   // ✅ ADDED THIS - provides broader access to track data
   ].join(' ');
 
   // Build authorization URL
@@ -90,9 +99,14 @@ router.get('/callback', async (req, res) => {
 
     const { access_token, refresh_token, expires_in, scope } = response.data;
 
+    console.log('Successfully exchanged code for tokens');
+    
+    // Make sure we're sending to the right domain and port
+    const frontendUrl = process.env.FRONTEND_URL || 'http://127.0.0.1:5173';
+    
     // Redirect to frontend with tokens as URL parameters
     res.redirect(
-      `${FRONTEND_URL}?access_token=${access_token}&refresh_token=${refresh_token}&expires_in=${expires_in}&scope=${encodeURIComponent(scope || '')}`
+      `${frontendUrl}?access_token=${access_token}&refresh_token=${refresh_token}&expires_in=${expires_in}&scope=${encodeURIComponent(scope || '')}`
     );
   } catch (error) {
     console.error('Token exchange error:', error.response?.data || error.message);
