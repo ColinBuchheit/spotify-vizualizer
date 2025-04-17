@@ -1,4 +1,4 @@
-// Visualizer.js
+// src/three/utils/Visualizer.js
 // Main controller for the 3D audio visualizer with enhanced visualization features and in-app music browser
 
 import * as THREE from 'three';
@@ -6,10 +6,12 @@ import { renderTrackInfo } from '../../ui/TrackInfo.js';
 import { createVolumeControl } from '../../ui/VolumeControl.js';
 import { refreshAccessToken } from '../../auth/handleAuth.js';
 import { createMusicBrowser } from '../../ui/MusicBrowser.js';
+import audioAnalyzer from '../../audio/AudioAnalyzer.js';
+import { getCurrentlyPlayingTrack, getAudioAnalysis, getAudioFeatures } from '../../spotify/spotifyAPI.js';
 import '../../ui/volume-control.css';
 import '../../ui/music-browser.css';
 
-// Import visualization modules - the enhanced bars is our primary visualization
+// Import visualization modules
 import { 
   createBarsVisualization, 
   removeBarsVisualization, 
@@ -34,8 +36,6 @@ import {
 
 // Import utility functions
 import { 
-  detectBeats, 
-  getCurrentMusicPower, 
   showMessage, 
   showError, 
   waitForSpotifySDK,
@@ -45,7 +45,6 @@ import {
 
 // Scene variables
 let scene, camera, renderer;
-let orbitControls;
 
 // Visualization state
 let visualizationMode = 'bars';
@@ -55,7 +54,7 @@ let waveform = null;
 
 // Camera animation
 let cameraTargetPosition = new THREE.Vector3(0, 0, 30);
-let cameraCurrentPosition = new THREE.Vector3(0, 0, 30);
+let cameraCurrentPosition = new THREE.Vector3(0, 8, 30);
 
 // Spotify and audio state
 let player = null;
@@ -75,16 +74,22 @@ let beatIntensity = 0;
 let lastUpdateTime = 0;
 let pulseFactor = 0;
 let pulseTime = 0;
-let segmentIndex = 0;
 let lastPowerLevel = 0.5;
-
-// Audio data
-let segments = [];
-let tatums = [];
-let beats = [];
-let currentTempo = 120; // Default tempo
-let energyValue = 0.5;  // Default energy
 let isPaused = false;
+
+// Current playback state
+let currentPlaybackProgressMs = 0;
+let lastPlaybackUpdateTime = 0;
+
+// Audio data from analyzer
+let audioData = {
+  volume: 0.5,
+  bass: 0.5,
+  mid: 0.5, 
+  treble: 0.5,
+  beatDetected: false,
+  beatIntensity: 0
+};
 
 /**
  * Initialize the visualizer
@@ -100,7 +105,13 @@ export async function initVisualizer(accessToken) {
     appContainer.style.display = 'block';
   }
   
+  // Setup Three.js scene
   setupThreeScene();
+  
+  // Initialize audio analyzer
+  await audioAnalyzer.initialize();
+  
+  // Setup Spotify player
   const playerInitialized = await setupSpotifyPlayer(accessToken);
   
   if (!playerInitialized) {
@@ -123,8 +134,8 @@ export async function initVisualizer(accessToken) {
   // Handle window resizing
   window.addEventListener('resize', onWindowResize);
   
-  // Set up optional orbit controls for camera
-  setupOrbitControls();
+  // Setup audio analyzer callbacks
+  setupAudioAnalyzer();
   
   // Start animation loop
   animate();
@@ -186,6 +197,77 @@ function setupThreeScene() {
 }
 
 /**
+ * Setup audio analyzer callbacks
+ */
+function setupAudioAnalyzer() {
+  // Set up beat detection callback
+  audioAnalyzer.onBeat = (beatData) => {
+    // Update beat detection state
+    beatDetected = true;
+    beatIntensity = beatData.intensity;
+    lastBeatTime = beatData.time;
+    
+    // Create pulse effect
+    pulseTime = beatData.intensity;
+  };
+  
+  // Set up continuous analysis callback
+  audioAnalyzer.onAnalyzed = (data) => {
+    // Store latest audio data
+    audioData = data;
+    
+    // Update power level for visualizations
+    lastPowerLevel = data.volume;
+  };
+}
+
+/**
+ * Get track audio analysis and features from Spotify API
+ * @param {string} trackId - Spotify track ID
+ */
+async function fetchTrackAnalysis(trackId) {
+  try {
+    // Get audio analysis and features in parallel
+    const [analysisResponse, featuresResponse] = await Promise.all([
+      getAudioAnalysis(trackId, accessTokenValue),
+      getAudioFeatures(trackId, accessTokenValue)
+    ]);
+    
+    // Store analysis data
+    currentTrackAnalysis = analysisResponse;
+    currentAudioFeatures = featuresResponse;
+    
+    // Update audio analyzer with the data
+    audioAnalyzer.updateTrackData(currentTrackAnalysis, currentAudioFeatures);
+    
+    // Update camera position based on audio features
+    updateCameraForMood(currentAudioFeatures);
+    
+    console.log('Track analysis loaded:', trackId);
+  } catch (error) {
+    console.error('Error fetching track analysis:', error);
+    
+    // Set default values if analysis fails
+    currentAudioFeatures = {
+      energy: 0.5,
+      tempo: 120,
+      valence: 0.5,
+      danceability: 0.5,
+      acousticness: 0.5,
+      instrumentalness: 0.5,
+      liveness: 0.5,
+      speechiness: 0.5
+    };
+    
+    // Update audio analyzer with default values
+    audioAnalyzer.energy = currentAudioFeatures.energy;
+    audioAnalyzer.tempo = currentAudioFeatures.tempo;
+    audioAnalyzer.danceability = currentAudioFeatures.danceability;
+    audioAnalyzer.valence = currentAudioFeatures.valence;
+  }
+}
+
+/**
  * Set up volume control UI with persistent settings
  */
 function setupVolumeControl() {
@@ -228,66 +310,6 @@ function setupVolumeControl() {
 }
 
 /**
- * Generate synthetic beat data when audio analysis is not available
- */
-function generateSyntheticBeatData() {
-  const beatInterval = 60 / (currentTempo || 120);
-  beats = [];
-  segments = [];
-  tatums = [];
-  
-  // Create simple synthetic beats at regular intervals
-  for (let i = 0; i < 100; i++) {
-    beats.push({
-      start: i * beatInterval,
-      duration: beatInterval,
-      confidence: 0.8
-    });
-    
-    // Create simple segments that align with beats
-    segments.push({
-      start: i * beatInterval,
-      duration: beatInterval,
-      loudness_max: Math.random() * 10 - 5,
-      loudness_start: Math.random() * 10 - 15,
-      pitches: Array(12).fill(0).map(() => Math.random()),
-      timbre: Array(12).fill(0).map(() => Math.random() * 100)
-    });
-    
-    // Create tatums (subdivisions of beats)
-    tatums.push({
-      start: i * beatInterval,
-      duration: beatInterval,
-      confidence: 0.7
-    });
-  }
-}
-
-/**
- * Update camera position based on track mood
- * @param {Object} features - Audio features
- */
-function updateCameraForMood(features) {
-  if (!features) return;
-  
-  // Only adjust camera if orbit controls aren't being used
-  if (orbitControls && orbitControls.enabled) return;
-  
-  // Calculate target camera position based on audio features
-  const energy = features.energy || 0.5;
-  const valence = features.valence || 0.5;
-  
-  // Higher energy = closer to the visualization
-  const zDistance = 40 - (energy * 20);
-  
-  // Valence (happiness) affects height - happier songs = higher view
-  const height = 5 + (valence * 10);
-  
-  // Set new camera target position
-  cameraTargetPosition.set(0, height, zDistance);
-}
-
-/**
  * Main animation loop
  */
 function animate() {
@@ -300,48 +322,50 @@ function animate() {
   // Update animation time
   animationTime += deltaTime;
   
-  // Update orbit controls if enabled
-  if (orbitControls && orbitControls.enabled) {
-    orbitControls.update();
-  } else {
-    // Smoothly move camera towards target position
-    cameraCurrentPosition.lerp(cameraTargetPosition, 0.02);
-    camera.position.copy(cameraCurrentPosition);
-    camera.lookAt(0, 0, 0);
+  // Update playback progress estimate
+  if (!isPaused) {
+    const estimatedProgressIncrease = deltaTime * 1000; // Convert to ms
+    currentPlaybackProgressMs += estimatedProgressIncrease;
+    
+    // Update the audio analyzer with our estimated progress
+    audioAnalyzer.updateProgress(currentPlaybackProgressMs);
   }
   
-  // Detect beats for visual effects
-  const beatResult = detectBeats(
-    animationTime, 
-    beats, 
-    lastBeatTime, 
-    currentTempo, 
-    energyValue, 
-    isPaused
-  );
-  
-  beatDetected = beatResult.beatDetected;
-  beatIntensity = beatResult.beatIntensity;
-  lastBeatTime = beatResult.lastBeatTime;
+  // Smoothly move camera towards target position
+  cameraCurrentPosition.lerp(cameraTargetPosition, 0.02);
+  camera.position.copy(cameraCurrentPosition);
+  camera.lookAt(0, 0, 0);
   
   // Update the pulse effect (smooth fade out after a beat)
-  if (beatDetected && !isPaused) {
-    pulseTime = 1.0 * beatIntensity;
-  } else {
+  if (pulseTime > 0) {
     pulseTime *= 0.95; // Fade out
   }
   
-  // Get current music power level for visualization
-  const powerLevel = getCurrentMusicPower(
-    animationTime, 
-    segments, 
-    lastPowerLevel, 
-    energyValue, 
-    isPaused
-  );
+  // Use audio data from analyzer
+  let powerLevel = audioData.volume;
+  let bassLevel = audioData.bass;
+  let midLevel = audioData.mid;
+  let trebleLevel = audioData.treble;
   
-  // Update lastPowerLevel for next frame
-  lastPowerLevel = powerLevel;
+  // When paused, use minimal values
+  if (isPaused) {
+    powerLevel = 0.1;
+    bassLevel = 0.1;
+    midLevel = 0.1;
+    trebleLevel = 0.1;
+    pulseTime = 0;
+  }
+  
+  // Enhanced audio data for visualizations
+  const enhancedAudioData = {
+    volume: powerLevel,
+    bass: bassLevel,
+    mid: midLevel,
+    treble: trebleLevel,
+    beatDetected: beatDetected,
+    beatIntensity: beatIntensity,
+    pulseTime: pulseTime
+  };
 
   // Update visualization based on current mode
   switch (visualizationMode) {
@@ -352,7 +376,10 @@ function animate() {
         pulseTime, 
         isPaused, 
         animationTime, 
-        currentAudioFeatures
+        {
+          ...currentAudioFeatures,
+          ...enhancedAudioData
+        }
       );
       break;
     case 'particles':
@@ -362,7 +389,10 @@ function animate() {
         pulseTime, 
         isPaused, 
         animationTime, 
-        currentAudioFeatures
+        {
+          ...currentAudioFeatures,
+          ...enhancedAudioData
+        }
       );
       break;
     case 'waveform':
@@ -372,31 +402,48 @@ function animate() {
         pulseTime, 
         isPaused, 
         animationTime, 
-        currentAudioFeatures
+        {
+          ...currentAudioFeatures,
+          ...enhancedAudioData
+        }
       );
       break;
   }
+
+  // Reset beat detection for next frame
+  beatDetected = false;
 
   // Render with postprocessing if available, otherwise use standard render
   renderWithPostprocessing(renderer, scene, camera);
 }
 
 /**
- * Poll for the current track every 5 seconds to sync visualizations
+ * Poll for the current track and playback state
  */
 function pollCurrentTrack() {
-  const pollInterval = 5000; // 5 seconds
+  const pollInterval = 1000; // 1 second for more accurate playback position
   
   setInterval(async () => {
     if (!accessTokenValue || !player) return;
     
     try {
-      // We'll get the state directly from the player now that we have in-app control
+      // Get playback state directly from the player
       const state = await player.getCurrentState();
       
       if (state) {
         // Update pause state
+        const wasPlaying = !isPaused;
         isPaused = state.paused;
+        
+        // Update paused state in audio analyzer
+        audioAnalyzer.setPaused(isPaused);
+        
+        // Update current playback position
+        currentPlaybackProgressMs = state.position;
+        lastPlaybackUpdateTime = performance.now() / 1000;
+        
+        // Update audio analyzer with current progress
+        audioAnalyzer.updateProgress(currentPlaybackProgressMs);
         
         // Update current track data from the player
         if (state.track_window && state.track_window.current_track) {
@@ -420,32 +467,21 @@ function pollCurrentTrack() {
             currentTrackData = trackData;
             renderTrackInfo(trackData);
             
-            // Set some defaults since we have in-app control now
-            energyValue = 0.5; 
-            currentTempo = 120;
+            // Reset playback progress
+            currentPlaybackProgressMs = state.position;
+            lastPlaybackUpdateTime = performance.now() / 1000;
             
-            // Generate synthetic beats since we're not using the API directly
-            generateSyntheticBeatData();
+            // Fetch track analysis data
+            await fetchTrackAnalysis(track.id);
             
-            // Set default audio features for visualization
-            currentAudioFeatures = {
-              energy: 0.5,
-              tempo: 120,
-              valence: 0.5,
-              danceability: 0.5,
-              acousticness: 0.5,
-              instrumentalness: 0.5,
-              liveness: 0.5,
-              speechiness: 0.5
-            };
-            
-            // Update camera for mood
-            updateCameraForMood(currentAudioFeatures);
+            // Show track change message
+            showMessage(`Now playing: ${track.name} by ${track.artists[0].name}`);
           }
         }
       } else {
         // No track playing - set to paused
         isPaused = true;
+        audioAnalyzer.setPaused(true);
       }
     } catch (error) {
       console.error('Error polling current track:', error);
@@ -464,38 +500,24 @@ function pollCurrentTrack() {
 }
 
 /**
- * Set up optional orbit controls for interactive camera movement
+ * Update camera position based on track mood
+ * @param {Object} features - Audio features
  */
-function setupOrbitControls() {
-  try {
-    // Try to dynamically import OrbitControls
-    import('three/examples/jsm/controls/OrbitControls.js').then(module => {
-      const { OrbitControls } = module;
-      orbitControls = new OrbitControls(camera, renderer.domElement);
-      orbitControls.enableDamping = true;
-      orbitControls.dampingFactor = 0.05;
-      orbitControls.screenSpacePanning = false;
-      orbitControls.minDistance = 10;
-      orbitControls.maxDistance = 50;
-      orbitControls.maxPolarAngle = Math.PI / 2;
-      orbitControls.enabled = false; // Start with controls disabled
-    }).catch(err => {
-      console.warn('OrbitControls could not be loaded:', err);
-    });
-  } catch (error) {
-    console.warn('OrbitControls import failed:', error);
-  }
-}
-
-/**
- * Toggle orbit controls on/off
- */
-export function toggleOrbitControls() {
-  if (orbitControls) {
-    orbitControls.enabled = !orbitControls.enabled;
-    return orbitControls.enabled;
-  }
-  return false;
+function updateCameraForMood(features) {
+  if (!features) return;
+  
+  // Calculate target camera position based on audio features
+  const energy = features.energy || 0.5;
+  const valence = features.valence || 0.5;
+  
+  // Higher energy = closer to the visualization
+  const zDistance = 40 - (energy * 20);
+  
+  // Valence (happiness) affects height - happier songs = higher view
+  const height = 5 + (valence * 10);
+  
+  // Set new camera target position
+  cameraTargetPosition.set(0, height, zDistance);
 }
 
 /**
@@ -637,11 +659,13 @@ async function setupSpotifyPlayer(accessToken) {
       if (!state) {
         // No state means no active player - set to paused
         isPaused = true;
+        audioAnalyzer.setPaused(true);
         return;
       }
       
       // Update pause state
       isPaused = state.paused;
+      audioAnalyzer.setPaused(isPaused);
       
       // If no track window or current track, something's wrong
       if (!state.track_window || !state.track_window.current_track) {
@@ -649,13 +673,6 @@ async function setupSpotifyPlayer(accessToken) {
       }
       
       const track = state.track_window.current_track;
-      
-      // Update pulse factor based on play/pause state
-      if (isPaused) {
-        pulseFactor = 0; // No pulses when paused
-      } else {
-        pulseFactor = 1.0; // Normal pulses when playing
-      }
       
       // If track changed, update UI
       if (!currentTrackId || track.id !== currentTrackId) {
@@ -680,27 +697,19 @@ async function setupSpotifyPlayer(accessToken) {
         
         renderTrackInfo(trackData);
         
-        // Set some default audio features for visualization
-        currentAudioFeatures = {
-          energy: 0.5,
-          tempo: 120,
-          valence: 0.5,
-          danceability: 0.5,
-          acousticness: 0.5,
-          instrumentalness: 0.5,
-          liveness: 0.5,
-          speechiness: 0.5
-        };
+        // Reset playback progress
+        currentPlaybackProgressMs = state.position;
+        lastPlaybackUpdateTime = performance.now() / 1000;
         
-        // Generate synthetic beat data
-        generateSyntheticBeatData();
-        
-        // Update camera based on default features
-        updateCameraForMood(currentAudioFeatures);
+        // Fetch track analysis data
+        await fetchTrackAnalysis(track.id);
         
         // Show track change message
         showMessage(`Now playing: ${track.name} by ${track.artists[0].name}`);
       }
+      
+      // Update current progress
+      currentPlaybackProgressMs = state.position;
       
       // If we have a device ID in the state, update it
       if (state.device_id && state.device_id !== spotifyDeviceId) {
