@@ -1,12 +1,13 @@
 // Visualizer.js
-// Main controller for the 3D audio visualizer with enhanced visualization features and improved authentication
+// Main controller for the 3D audio visualizer with enhanced visualization features and in-app music browser
 
 import * as THREE from 'three';
 import { renderTrackInfo } from '../../ui/TrackInfo.js';
-import { getCurrentlyPlayingTrack, getAudioFeatures, getAudioAnalysis } from '../../spotify/spotifyAPI.js';
 import { createVolumeControl } from '../../ui/VolumeControl.js';
-import { refreshAccessToken, handleAuthError } from '../../auth/handleAuth.js';
+import { refreshAccessToken } from '../../auth/handleAuth.js';
+import { createMusicBrowser } from '../../ui/MusicBrowser.js';
 import '../../ui/volume-control.css';
+import '../../ui/music-browser.css';
 
 // Import visualization modules - the enhanced bars is our primary visualization
 import { 
@@ -35,7 +36,6 @@ import {
 import { 
   detectBeats, 
   getCurrentMusicPower, 
-  createErrorOverlay, 
   showMessage, 
   showError, 
   waitForSpotifySDK,
@@ -64,6 +64,8 @@ let currentTrackId = null;
 let currentTrackAnalysis = null;
 let currentAudioFeatures = null;
 let currentTrackData = null;
+let musicBrowser = null;
+let spotifyDeviceId = null;
 
 // Animation state
 let animationTime = 0;
@@ -223,190 +225,6 @@ function setupVolumeControl() {
   
   // Add to document
   document.body.appendChild(volumeControl.element);
-}
-
-/**
- * Fetch audio analysis and features from Spotify API with improved error handling
- * @param {string} trackId - Spotify track ID
- * @param {string} accessToken - Spotify access token
- */
-async function fetchTrackAnalysis(trackId, accessToken) {
-  // Track if we got default values due to permission issues
-  let permissionErrorOccurred = false;
-  
-  // Authentication status tracking
-  let authErrorOccurred = false;
-  let featuresSuccess = false;
-  let analysisSuccess = false;
-  
-  // Maximum retry attempts
-  const MAX_RETRIES = 1; // Reduced from 2 to 1 to minimize retries on 403 errors
-  let retryCount = 0;
-  
-  const fetchWithRetry = async (fn, defaultValue) => {
-    let lastError = null;
-    
-    for (let i = 0; i <= MAX_RETRIES; i++) {
-      try {
-        const result = await fn();
-        // Check if this is a default fallback value (from a 403 error)
-        if (result && 
-            typeof result === 'object' && 
-            result.energy === 0.5 && 
-            result.tempo === 120) {
-          console.log('Received default fallback values - likely a permission issue');
-          permissionErrorOccurred = true;
-        }
-        return result;
-      } catch (error) {
-        lastError = error;
-        console.error(`Attempt ${i + 1}/${MAX_RETRIES + 1} failed:`, error);
-        
-        // Check if this is an auth error (401 or 403)
-        if (error.response) {
-          if (error.response.status === 403) {
-            permissionErrorOccurred = true;
-            // For 403 Forbidden, just return default values immediately
-            // This avoids excessive retries when permissions are the issue
-            console.log('403 Forbidden error - returning default values');
-            return defaultValue;
-          } else if (error.response.status === 401) {
-            authErrorOccurred = true;
-            
-            if (i === MAX_RETRIES) {
-              // Last attempt failed with auth error, try to refresh
-              const newToken = await refreshAccessToken();
-              if (newToken) {
-                accessToken = newToken;
-                // One more attempt with new token
-                try {
-                  return await fn();
-                } catch (finalError) {
-                  console.error('Final attempt failed:', finalError);
-                  return defaultValue;
-                }
-              }
-            }
-          }
-        }
-        
-        // For non-auth errors or if we have more retries, wait and continue
-        if (i < MAX_RETRIES) {
-          await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
-        } else {
-          // Return default value after all retries failed
-          return defaultValue;
-        }
-      }
-    }
-    
-    return defaultValue;
-  };
-  
-  // Get audio features (high-level data about the track)
-  const features = await fetchWithRetry(
-    () => getAudioFeatures(trackId, accessToken),
-    // Default features if all retries fail
-    {
-      energy: 0.5,
-      tempo: 120,
-      valence: 0.5,
-      danceability: 0.5,
-      acousticness: 0.5,
-      instrumentalness: 0.5,
-      liveness: 0.5,
-      speechiness: 0.5
-    }
-  );
-  
-  if (features) {
-    currentAudioFeatures = features;
-    energyValue = features.energy || 0.5;
-    currentTempo = features.tempo || 120;
-    console.log('Audio features:', features);
-    
-    // Adjust camera position based on audio energy and valence
-    updateCameraForMood(features);
-    featuresSuccess = true;
-  } else {
-    // Continue with default values instead of showing an error
-    energyValue = 0.5;
-    currentTempo = 120;
-    
-    // Generate fallback audio features for visualization
-    currentAudioFeatures = {
-      energy: energyValue,
-      tempo: currentTempo,
-      valence: 0.5,
-      danceability: 0.5,
-      acousticness: 0.5,
-      instrumentalness: 0.5,
-      liveness: 0.5,
-      speechiness: 0.5
-    };
-  }
-  
-  // Get detailed audio analysis (beat/segment data)
-  const analysis = await fetchWithRetry(
-    () => getAudioAnalysis(trackId, accessToken),
-    null
-  );
-  
-  if (analysis) {
-    currentTrackAnalysis = analysis;
-    segments = analysis.segments || [];
-    beats = analysis.beats || [];
-    tatums = analysis.tatums || [];
-    segmentIndex = 0;
-    console.log('Audio analysis:', analysis);
-    analysisSuccess = true;
-  } else {
-    // Generate basic beat patterns based on tempo as fallback
-    console.log('Using synthetic beat data as fallback');
-    generateSyntheticBeatData();
-  }
-  
-  // Show appropriate message based on what happened
-  if (permissionErrorOccurred) {
-    showMessage('Using basic visualization - some audio features not available for this track.', 5000);
-  } else if (authErrorOccurred && !featuresSuccess && !analysisSuccess) {
-    const message = 'Limited visualization mode: Spotify visualization features require re-authentication. ' +
-                   'Log out and log back in to enable full visualization.';
-    showMessage(message, 10000); // Show for 10 seconds
-    
-    // Add a button to make re-auth easier (only if not already present)
-    if (!document.getElementById('reauth-spotify-button')) {
-      const reAuthButton = document.createElement('button');
-      reAuthButton.id = 'reauth-spotify-button';
-      reAuthButton.textContent = 'Re-authenticate with Spotify';
-      reAuthButton.style.position = 'fixed';
-      reAuthButton.style.top = '80px';
-      reAuthButton.style.left = '50%';
-      reAuthButton.style.transform = 'translateX(-50%)';
-      reAuthButton.style.padding = '10px 20px';
-      reAuthButton.style.backgroundColor = '#1db954';
-      reAuthButton.style.color = 'white';
-      reAuthButton.style.border = 'none';
-      reAuthButton.style.borderRadius = '20px';
-      reAuthButton.style.cursor = 'pointer';
-      reAuthButton.style.zIndex = '1000';
-      
-      reAuthButton.onclick = () => {
-        // Clear tokens and redirect to login
-        clearTokens();
-        redirectToLogin();
-      };
-      
-      document.body.appendChild(reAuthButton);
-      
-      // Remove button after 30 seconds
-      setTimeout(() => {
-        if (document.body.contains(reAuthButton)) {
-          document.body.removeChild(reAuthButton);
-        }
-      }, 30000);
-    }
-  }
 }
 
 /**
@@ -573,20 +391,57 @@ function pollCurrentTrack() {
     if (!accessTokenValue || !player) return;
     
     try {
-      const trackData = await getCurrentlyPlayingTrack(accessTokenValue);
+      // We'll get the state directly from the player now that we have in-app control
+      const state = await player.getCurrentState();
       
-      if (trackData) {
+      if (state) {
         // Update pause state
-        isPaused = !trackData.is_playing;
+        isPaused = state.paused;
         
-        // Update current track data
-        currentTrackData = trackData;
-        
-        // If track changed, update info and get analysis
-        if (trackData.item && trackData.item.id !== currentTrackId) {
-          currentTrackId = trackData.item.id;
-          renderTrackInfo(trackData);
-          await fetchTrackAnalysis(trackData.item.id, accessTokenValue);
+        // Update current track data from the player
+        if (state.track_window && state.track_window.current_track) {
+          const track = state.track_window.current_track;
+          
+          // If track changed, update info
+          if (track.id !== currentTrackId) {
+            currentTrackId = track.id;
+            
+            // Format track data to match the expected structure
+            const trackData = {
+              item: {
+                name: track.name,
+                artists: track.artists,
+                album: track.album,
+                id: track.id
+              },
+              is_playing: !isPaused
+            };
+            
+            currentTrackData = trackData;
+            renderTrackInfo(trackData);
+            
+            // Set some defaults since we have in-app control now
+            energyValue = 0.5; 
+            currentTempo = 120;
+            
+            // Generate synthetic beats since we're not using the API directly
+            generateSyntheticBeatData();
+            
+            // Set default audio features for visualization
+            currentAudioFeatures = {
+              energy: 0.5,
+              tempo: 120,
+              valence: 0.5,
+              danceability: 0.5,
+              acousticness: 0.5,
+              instrumentalness: 0.5,
+              liveness: 0.5,
+              speechiness: 0.5
+            };
+            
+            // Update camera for mood
+            updateCameraForMood(currentAudioFeatures);
+          }
         }
       } else {
         // No track playing - set to paused
@@ -604,8 +459,6 @@ function pollCurrentTrack() {
           accessTokenValue = newToken;
         }
       }
-      
-      // Don't show error for polling failures to avoid spamming the user
     }
   }, pollInterval);
 }
@@ -697,7 +550,34 @@ function onWindowResize() {
 }
 
 /**
- * Set up the Spotify Web Playback SDK with improved error handling
+ * Initialize music browser for direct track selection
+ * @param {string} deviceId - The Spotify player device ID
+ */
+function initializeMusicBrowser(deviceId) {
+  if (!player || !accessTokenValue) {
+    console.warn('Cannot initialize music browser: player or token not available');
+    return null;
+  }
+  
+  try {
+    // Create music browser component and pass the device ID
+    const browser = createMusicBrowser(player, accessTokenValue, deviceId);
+    
+    // Add to the DOM
+    document.body.appendChild(browser.element);
+    
+    // Show a welcome message
+    showMessage('Tip: Click the Music button in the top right to browse and play tracks', 7000);
+    
+    return browser;
+  } catch (error) {
+    console.error('Error initializing music browser:', error);
+    return null;
+  }
+}
+
+/**
+ * Set up the Spotify Web Playback SDK
  * @param {string} accessToken - Spotify access token
  * @returns {Promise<Object|null>} - Spotify player object or null if failed
  */
@@ -705,63 +585,6 @@ async function setupSpotifyPlayer(accessToken) {
   try {
     await waitForSpotifySDK();
     
-    // Check token validity before proceeding
-    try {
-      const response = await fetch('http://localhost:8888/auth/validate_token', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ access_token: accessToken }),
-      });
-      
-      const data = await response.json();
-      
-      if (!data.valid) {
-        console.error('Invalid access token, refreshing...');
-        
-        // Try to refresh token
-        const refreshToken = localStorage.getItem('spotify_refresh_token');
-        if (refreshToken) {
-          const refreshResponse = await fetch('http://localhost:8888/auth/refresh_token', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ refresh_token: refreshToken }),
-          });
-          
-          if (refreshResponse.ok) {
-            const refreshData = await refreshResponse.json();
-            accessToken = refreshData.access_token;
-            accessTokenValue = accessToken; // Update global token
-            
-            // Update stored token
-            localStorage.setItem('spotify_access_token', accessToken);
-            localStorage.setItem('spotify_token_expiration', 
-              (Date.now() + (parseInt(refreshData.expires_in) * 1000)).toString());
-          } else {
-            // Redirect to login if refresh fails
-            window.location.href = 'http://localhost:8888/auth/login';
-            return null;
-          }
-        } else {
-          // No refresh token, redirect to login
-          window.location.href = 'http://localhost:8888/auth/login';
-          return null;
-        }
-      }
-      
-      // Check if user has Spotify Premium (required for Web Playback SDK)
-      if (data.user && data.user.product !== 'premium') {
-        showError('Spotify Premium is required for this visualizer.');
-        return null;
-      }
-    } catch (error) {
-      console.error('Error validating token:', error);
-      // Continue anyway - we'll catch any issues during player initialization
-    }
-  
     player = new Spotify.Player({
       name: 'Spotify 3D Visualizer',
       getOAuthToken: cb => cb(accessToken),
@@ -779,11 +602,6 @@ async function setupSpotifyPlayer(accessToken) {
     player.addListener('authentication_error', ({ message }) => {
       console.error('Failed to authenticate:', message);
       showError('Authentication failed. Please reconnect your Spotify account.');
-      
-      // Redirect to login after a short delay
-      setTimeout(() => {
-        window.location.href = 'http://localhost:8888/auth/login';
-      }, 3000);
     });
     
     player.addListener('account_error', ({ message }) => {
@@ -803,64 +621,15 @@ async function setupSpotifyPlayer(accessToken) {
     player.addListener('ready', async ({ device_id }) => {
       console.log('Player ready with device ID', device_id);
       
-      try {
-        // Get currently playing track
-        const track = await getCurrentlyPlayingTrack(accessToken);
-        
-        if (track && track.item) {
-          // Store current track data
-          currentTrackData = track;
-          
-          // Display track info
-          renderTrackInfo(track);
-          currentTrackId = track.item.id;
-          isPaused = !track.is_playing;
-          
-          // Transfer playback to this device
-          await fetch('https://api.spotify.com/v1/me/player', {
-            method: 'PUT',
-            headers: { 
-              'Authorization': `Bearer ${accessToken}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ 
-              device_ids: [device_id], 
-              play: true 
-            })
-          });
-          
-          // Get audio features and analysis for visualization
-          await fetchTrackAnalysis(track.item.id, accessToken);
-          
-          // Update UI to show we're playing
-          isPaused = false;
-          
-          // Show welcome message
-          showMessage(`Now visualizing: ${track.item.name} by ${track.item.artists[0].name}`);
-        } else {
-          isPaused = true;
-          showMessage('No track currently playing. Please start playing a track on Spotify.');
-        }
-      } catch (error) {
-        console.error('Error setting up playback:', error);
-        
-        // Check if this is an auth error
-        if (isAuthError(error)) {
-          // Try to refresh the token
-          const newToken = await refreshAccessToken();
-          if (newToken) {
-            accessTokenValue = newToken;
-            showMessage('Token refreshed. Try playing music from your Spotify app.', 5000);
-          } else {
-            showError('Authentication error. Please reconnect your Spotify account.');
-            setTimeout(() => {
-              window.location.href = 'http://localhost:8888/auth/login';
-            }, 3000);
-          }
-        } else {
-          showError('Error setting up playback. Please try again or check your Spotify connection.');
-        }
-      }
+      // Store device ID both locally and globally
+      spotifyDeviceId = device_id;
+      window.spotifyDeviceId = device_id;
+      
+      // Initialize the music browser with the device ID
+      musicBrowser = initializeMusicBrowser(device_id);
+      
+      // Show welcome message
+      showMessage('Spotify visualizer ready! Click the Music button to browse and play tracks.');
     });
   
     // Track change listener
@@ -888,7 +657,7 @@ async function setupSpotifyPlayer(accessToken) {
         pulseFactor = 1.0; // Normal pulses when playing
       }
       
-      // If track changed, update UI and get new audio features
+      // If track changed, update UI
       if (!currentTrackId || track.id !== currentTrackId) {
         currentTrackId = track.id;
         
@@ -911,11 +680,37 @@ async function setupSpotifyPlayer(accessToken) {
         
         renderTrackInfo(trackData);
         
-        // Get audio features for better visualization
-        await fetchTrackAnalysis(track.id, accessToken);
+        // Set some default audio features for visualization
+        currentAudioFeatures = {
+          energy: 0.5,
+          tempo: 120,
+          valence: 0.5,
+          danceability: 0.5,
+          acousticness: 0.5,
+          instrumentalness: 0.5,
+          liveness: 0.5,
+          speechiness: 0.5
+        };
+        
+        // Generate synthetic beat data
+        generateSyntheticBeatData();
+        
+        // Update camera based on default features
+        updateCameraForMood(currentAudioFeatures);
         
         // Show track change message
         showMessage(`Now playing: ${track.name} by ${track.artists[0].name}`);
+      }
+      
+      // If we have a device ID in the state, update it
+      if (state.device_id && state.device_id !== spotifyDeviceId) {
+        spotifyDeviceId = state.device_id;
+        window.spotifyDeviceId = state.device_id;
+        
+        // Update the music browser if it exists
+        if (musicBrowser && typeof musicBrowser.updateDeviceId === 'function') {
+          musicBrowser.updateDeviceId(state.device_id);
+        }
       }
     });
 
@@ -948,9 +743,6 @@ async function setupSpotifyPlayer(accessToken) {
         return setupSpotifyPlayer(newToken);
       } else {
         showError('Authentication failed. Please reconnect your Spotify account.');
-        setTimeout(() => {
-          window.location.href = 'http://localhost:8888/auth/login';
-        }, 3000);
       }
     } else {
       showError('Failed to initialize Spotify player. Please try again.');
