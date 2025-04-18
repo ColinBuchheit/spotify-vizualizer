@@ -34,7 +34,7 @@ window.onload = async () => {
     showVisualizer(accessToken);
   } else {
     const storedToken = await getStoredAccessToken();
-    console.log('📦 Stored token:', storedToken);
+    console.log('📦 Stored token:', storedToken ? storedToken.substring(0, 15) + '...' : 'none');
     
     if (storedToken) {
       showVisualizer(storedToken);
@@ -42,10 +42,8 @@ window.onload = async () => {
       console.warn('⚠️ No stored token, showing login screen.');
       showLoginScreen();
     }
-    
   }
-  
-
+};
 
 /**
  * Show the visualizer and initialize it with the access token
@@ -58,19 +56,25 @@ function showVisualizer(accessToken) {
   if (loginScreen) loginScreen.style.display = 'none';
   if (app) app.style.display = 'block';
 
+  // Create a proper spinner container for better positioning and overlay
+  const spinnerContainer = document.createElement('div');
+  spinnerContainer.className = 'spinner-container';
+  
   const loading = document.createElement('div');
   loading.className = 'loading-spinner';
-  document.body.appendChild(loading);
+  
+  spinnerContainer.appendChild(loading);
+  document.body.appendChild(spinnerContainer);
 
   initVisualizer(accessToken)
     .catch(error => {
       console.error('Error initializing visualizer:', error);
-      document.body.removeChild(loading);
+      document.body.removeChild(spinnerContainer);
       showError('Failed to initialize visualizer. Please try again.');
     })
     .finally(() => {
-      if (document.body.contains(loading)) {
-        document.body.removeChild(loading);
+      if (document.body.contains(spinnerContainer)) {
+        document.body.removeChild(spinnerContainer);
       }
     });
 }
@@ -127,5 +131,4 @@ function showError(message) {
 
   document.getElementById('error-message').textContent = message;
   errorOverlay.style.display = 'flex';
-}
 }

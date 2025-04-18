@@ -51,7 +51,7 @@ export function createMusicBrowser(player, accessToken, initialDeviceId) {
       
       <div class="content-area">
         <div class="tab-content recent active">
-          <div class="loading-spinner">Loading...</div>
+          <div class="loading-spinner">Loading recently played...</div>
           <div class="track-list"></div>
         </div>
         
@@ -111,6 +111,10 @@ export function createMusicBrowser(player, accessToken, initialDeviceId) {
   const recentTracksList = container.querySelector('.tab-content.recent .track-list');
   const searchTracksList = container.querySelector('.tab-content.search-results .track-list');
   const recommendedTracksList = container.querySelector('.tab-content.recommended .track-list');
+  
+  // Loading spinners
+  const recentLoadingSpinner = container.querySelector('.tab-content.recent .loading-spinner');
+  const recommendedLoadingSpinner = container.querySelector('.tab-content.recommended .loading-spinner');
   
   // State variables
   let isPlaying = false;
@@ -190,8 +194,14 @@ export function createMusicBrowser(player, accessToken, initialDeviceId) {
     const query = searchInput.value.trim();
     if (query.length < 2) return;
     
-    // Show loading
-    searchTracksList.innerHTML = '<div class="loading-spinner">Searching...</div>';
+    // Create a temporary loading spinner
+    const loadingSpinner = document.createElement('div');
+    loadingSpinner.className = 'loading-spinner';
+    loadingSpinner.textContent = 'Searching...';
+    
+    // Clear previous results and show loading spinner
+    searchTracksList.innerHTML = '';
+    searchTracksList.appendChild(loadingSpinner);
     
     // Switch to search results tab
     switchTab('search-results');
@@ -200,9 +210,19 @@ export function createMusicBrowser(player, accessToken, initialDeviceId) {
       // Search for tracks, artists, and albums
       const results = await search(query, 'track,album,artist', accessToken, 30);
       
+      // Remove loading spinner
+      if (searchTracksList.contains(loadingSpinner)) {
+        searchTracksList.removeChild(loadingSpinner);
+      }
+      
       // Process and display results
       displaySearchResults(results);
     } catch (error) {
+      // Remove loading spinner
+      if (searchTracksList.contains(loadingSpinner)) {
+        searchTracksList.removeChild(loadingSpinner);
+      }
+      
       console.error('Search error:', error);
       searchTracksList.innerHTML = '<div class="error-message">Error searching. Please try again.</div>';
     }
@@ -356,7 +376,18 @@ export function createMusicBrowser(player, accessToken, initialDeviceId) {
    */
   async function loadRecentTracks() {
     try {
+      // Make sure loading spinner is visible and track list is clear
+      if (recentLoadingSpinner) {
+        recentLoadingSpinner.style.display = 'block';
+      }
+      recentTracksList.innerHTML = '';
+      
       const recentTracks = await getRecentlyPlayed(accessToken, 20);
+      
+      // Hide loading spinner
+      if (recentLoadingSpinner) {
+        recentLoadingSpinner.style.display = 'none';
+      }
       
       if (!recentTracks || !recentTracks.items || recentTracks.items.length === 0) {
         recentTracksList.innerHTML = '<div class="no-results">No recently played tracks</div>';
@@ -374,14 +405,17 @@ export function createMusicBrowser(player, accessToken, initialDeviceId) {
         }
       });
       
-      // Clear loading spinner
-      recentTracksList.innerHTML = '';
-      
       // Create and append track list
       const trackListElement = createTrackList(uniqueTracks);
       recentTracksList.appendChild(trackListElement);
     } catch (error) {
       console.error('Error loading recent tracks:', error);
+      
+      // Hide loading spinner and show error
+      if (recentLoadingSpinner) {
+        recentLoadingSpinner.style.display = 'none';
+      }
+      
       recentTracksList.innerHTML = '<div class="error-message">Could not load recent tracks</div>';
     }
   }
@@ -392,8 +426,14 @@ export function createMusicBrowser(player, accessToken, initialDeviceId) {
    */
   async function loadAlbumTracks(albumId) {
     try {
-      // Show loading in search results
-      searchTracksList.innerHTML = '<div class="loading-spinner">Loading album tracks...</div>';
+      // Create a temporary loading spinner
+      const loadingSpinner = document.createElement('div');
+      loadingSpinner.className = 'loading-spinner';
+      loadingSpinner.textContent = 'Loading album tracks...';
+      
+      // Clear previous results and show loading spinner
+      searchTracksList.innerHTML = '';
+      searchTracksList.appendChild(loadingSpinner);
       
       // Get album tracks from API
       const response = await fetch(`https://api.spotify.com/v1/albums/${albumId}/tracks?limit=50`, {
@@ -422,6 +462,11 @@ export function createMusicBrowser(player, accessToken, initialDeviceId) {
       
       const tracksData = await tracksResponse.json();
       
+      // Remove loading spinner
+      if (searchTracksList.contains(loadingSpinner)) {
+        searchTracksList.removeChild(loadingSpinner);
+      }
+      
       // Display tracks
       searchTracksList.innerHTML = `<h3>Album Tracks</h3>`;
       const trackList = createTrackList(tracksData.tracks);
@@ -438,8 +483,14 @@ export function createMusicBrowser(player, accessToken, initialDeviceId) {
    */
   async function loadArtistTopTracks(artistId) {
     try {
-      // Show loading in search results
-      searchTracksList.innerHTML = '<div class="loading-spinner">Loading artist tracks...</div>';
+      // Create a temporary loading spinner
+      const loadingSpinner = document.createElement('div');
+      loadingSpinner.className = 'loading-spinner';
+      loadingSpinner.textContent = 'Loading artist tracks...';
+      
+      // Clear previous results and show loading spinner
+      searchTracksList.innerHTML = '';
+      searchTracksList.appendChild(loadingSpinner);
       
       // Get market from user profile
       let market = 'US'; // Default
@@ -464,6 +515,11 @@ export function createMusicBrowser(player, accessToken, initialDeviceId) {
       }
       
       const data = await response.json();
+      
+      // Remove loading spinner
+      if (searchTracksList.contains(loadingSpinner)) {
+        searchTracksList.removeChild(loadingSpinner);
+      }
       
       // Display tracks
       searchTracksList.innerHTML = `<h3>Top Tracks</h3>`;
@@ -522,10 +578,20 @@ export function createMusicBrowser(player, accessToken, initialDeviceId) {
    */
   async function loadRecommendedTracks() {
     try {
-      recommendedTracksList.innerHTML = '<div class="loading-spinner">Loading recommendations...</div>';
+      // Make sure loading spinner is visible
+      if (recommendedLoadingSpinner) {
+        recommendedLoadingSpinner.style.display = 'block';
+      }
+      
+      recommendedTracksList.innerHTML = '';
       
       // First get recent tracks to use as seeds
       const recentTracks = await getRecentlyPlayed(accessToken, 5);
+      
+      // Hide loading spinner
+      if (recommendedLoadingSpinner) {
+        recommendedLoadingSpinner.style.display = 'none';
+      }
       
       if (!recentTracks || !recentTracks.items || recentTracks.items.length === 0) {
         recommendedTracksList.innerHTML = '<div class="no-results">No track history to generate recommendations</div>';
@@ -552,7 +618,6 @@ export function createMusicBrowser(player, accessToken, initialDeviceId) {
       const data = await response.json();
       
       // Display recommended tracks
-      recommendedTracksList.innerHTML = '';
       const trackList = createTrackList(data.tracks);
       recommendedTracksList.appendChild(trackList);
     } catch (error) {
@@ -617,7 +682,17 @@ export function createMusicBrowser(player, accessToken, initialDeviceId) {
         throw new Error('No active device found. Try refreshing the page.');
       }
       
-      console.log('Playing track on device ID:', deviceId);
+      // Create temporary UI indicator
+      const playingIndicator = document.createElement('div');
+      playingIndicator.textContent = 'Playing...';
+      playingIndicator.className = 'browser-error-notification';
+      playingIndicator.style.backgroundColor = 'rgba(29, 185, 84, 0.9)';
+      document.body.appendChild(playingIndicator);
+      
+      // Show indicator
+      setTimeout(() => {
+        playingIndicator.classList.add('show');
+      }, 10);
       
       // Play the track on the device
       const response = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
@@ -630,6 +705,16 @@ export function createMusicBrowser(player, accessToken, initialDeviceId) {
           uris: [uri]
         })
       });
+      
+      // Remove indicator after a delay
+      setTimeout(() => {
+        playingIndicator.classList.remove('show');
+        setTimeout(() => {
+          if (document.body.contains(playingIndicator)) {
+            document.body.removeChild(playingIndicator);
+          }
+        }, 300);
+      }, 2000);
       
       if (!response.ok) {
         // If we get a 404, the device might not be active anymore
@@ -660,16 +745,23 @@ export function createMusicBrowser(player, accessToken, initialDeviceId) {
     if (!player) return;
     
     try {
-      if (isPlaying) {
-        await player.pause();
-      } else {
-        await player.resume();
-      }
+      // First, update UI to be responsive
+      isPlaying = !isPlaying;
+      updatePlayPauseButton();
       
-      // UI will be updated via the player state listener
+      // Then call the player SDK function
+      if (isPlaying) {
+        await player.resume();
+      } else {
+        await player.pause();
+      }
     } catch (error) {
       console.error('Error toggling playback:', error);
-      showError('Playback control failed. Try again.');
+      
+      // Revert UI if there was an error
+      isPlaying = !isPlaying;
+      updatePlayPauseButton();
+      showError('Could not control playback. Try again or refresh the page.');
     }
   }
   
@@ -795,7 +887,9 @@ export function createMusicBrowser(player, accessToken, initialDeviceId) {
     setTimeout(() => {
       errorEl.classList.remove('show');
       setTimeout(() => {
-        container.removeChild(errorEl);
+        if (container.contains(errorEl)) {
+          container.removeChild(errorEl);
+        }
       }, 300);
     }, 5000);
   }
