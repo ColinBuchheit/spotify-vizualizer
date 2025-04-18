@@ -78,7 +78,8 @@ export async function getCurrentlyPlayingTrack(accessToken) {
     const response = await spotifyAxios.get('/me/player/currently-playing', {
       headers: {
         Authorization: `Bearer ${accessToken}`
-      }
+      },
+      timeout: 5000 // Add timeout to prevent hanging requests
     });
 
     return response.data;
@@ -107,14 +108,30 @@ export async function getAudioFeatures(trackId, accessToken) {
     const response = await spotifyAxios.get(`/audio-features/${trackId}`, {
       headers: {
         Authorization: `Bearer ${accessToken}`
-      }
+      },
+      timeout: 5000 // Add timeout to prevent hanging requests
     });
 
     return response.data;
   } catch (error) {
-    // For 403 Forbidden errors, immediately return default values without retrying
+    // Log detailed error information
+    console.error('Audio features error:', {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      trackId
+    });
+    
+    // For 403 Forbidden errors, check if Premium account is required
     if (error.response && error.response.status === 403) {
-      console.log('Audio features access forbidden for this track. Using default values.');
+      // Check if we can determine if this is a premium requirement
+      const errorMsg = error.response.data?.error?.message || '';
+      if (errorMsg.toLowerCase().includes('premium')) {
+        console.warn('Premium account required for audio features access');
+        // Could show a user-friendly message here
+      } else {
+        console.log('Audio features access forbidden for this track. Using default values.');
+      }
       return getDefaultAudioFeatures();
     }
     
@@ -163,14 +180,30 @@ export async function getAudioAnalysis(trackId, accessToken) {
     const response = await spotifyAxios.get(`/audio-analysis/${trackId}`, {
       headers: {
         Authorization: `Bearer ${accessToken}`
-      }
+      },
+      timeout: 8000 // Longer timeout for analysis data which is larger
     });
 
     return response.data;
   } catch (error) {
-    // For 403 Forbidden errors, immediately return null without retrying
+    // Log detailed error information
+    console.error('Audio analysis error:', {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      trackId
+    });
+    
+    // For 403 Forbidden errors, check if Premium account is required
     if (error.response && error.response.status === 403) {
-      console.log('Audio analysis access forbidden for this track. Using fallback values.');
+      // Check if we can determine if this is a premium requirement
+      const errorMsg = error.response.data?.error?.message || '';
+      if (errorMsg.toLowerCase().includes('premium')) {
+        console.warn('Premium account required for audio analysis access');
+        // Could show a user-friendly message here
+      } else {
+        console.log('Audio analysis access forbidden for this track. Using fallback values.');
+      }
       return null;
     }
     
@@ -205,6 +238,21 @@ export async function getUserProfile(accessToken) {
     
     // Handle auth errors with the interceptor
     throw error;
+  }
+}
+
+/**
+ * Check if the user has a Premium account
+ * @param {string} accessToken - Spotify access token
+ * @returns {Promise<boolean>} - True if Premium account
+ */
+export async function isPremiumUser(accessToken) {
+  try {
+    const profile = await getUserProfile(accessToken);
+    return profile.product === 'premium';
+  } catch (error) {
+    console.error('Error checking premium status:', error);
+    return false; // Assume not premium if check fails
   }
 }
 
@@ -257,7 +305,8 @@ export async function controlPlayback(action, accessToken, deviceId = null) {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json'
       },
-      data: body
+      data: body,
+      timeout: 5000 // Add timeout for playback controls
     });
 
     return { success: true, data: response.data };
@@ -269,6 +318,14 @@ export async function controlPlayback(action, accessToken, deviceId = null) {
       return { 
         success: false, 
         error: 'Playback device not ready. Try again in a moment.' 
+      };
+    }
+    
+    // For 403 errors, likely a premium account issue
+    if (error.response && error.response.status === 403) {
+      return {
+        success: false,
+        error: 'Premium account required for playback control.'
       };
     }
     
@@ -332,7 +389,8 @@ export async function search(query, type, accessToken, limit = 20) {
       params: {
         q: query,
         type,
-        limit: Math.min(50, limit)
+        limit: Math.min(50, limit),
+        market: 'from_token' // Use user's market (important for track availability)
       },
       headers: {
         Authorization: `Bearer ${accessToken}`
@@ -345,3 +403,6 @@ export async function search(query, type, accessToken, limit = 20) {
     throw error;
   }
 }
+
+// Export the axios instance for use in other modules if needed
+export { spotifyAxios };
