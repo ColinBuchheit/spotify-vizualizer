@@ -84,9 +84,11 @@ function storeTokens(accessToken, refreshToken, expiresIn) {
  * Get stored access token if valid, refresh if expired
  * @returns {Promise<string|null>}
  */
+// handleAuth.js
 export async function getStoredAccessToken() {
   const accessToken = localStorage.getItem('spotify_access_token');
   const expirationTime = localStorage.getItem('spotify_token_expiration');
+  const scopeString = localStorage.getItem('spotify_token_scope') || '';
 
   if (!accessToken || !expirationTime) {
     return null;
@@ -94,19 +96,45 @@ export async function getStoredAccessToken() {
 
   const now = Date.now();
 
-  if (now > parseInt(expirationTime)) {
-    console.log('Token expired, attempting to refresh...');
+  // ✅ Validate scopes
+  const requiredScopes = [
+    'user-read-private',
+    'user-read-email',
+    'user-read-playback-state',
+    'user-modify-playback-state',
+    'user-read-currently-playing',
+    'streaming',
+    'user-read-recently-played',
+    'user-read-playback-position'
+  ];
+
+  const grantedScopes = scopeString.split(/\s+/);
+  const missingScopes = requiredScopes.filter(scope => !grantedScopes.includes(scope));
+  if (missingScopes.length > 0) {
+    console.warn('❌ Missing required Spotify scopes:', missingScopes);
+    clearTokens();
+    redirectToLogin();
+    return null;
+  }
+
+  // ✅ If expired
+  if (parseInt(expirationTime, 10) <= now) {
+    console.log('⏰ Token expired, refreshing...');
     const newToken = await refreshAccessToken();
     return newToken;
   }
 
-  if (now > parseInt(expirationTime) - 300000) {
-    console.log('Token expiring soon, refreshing in background...');
-    refreshAccessToken(); // Non-blocking
+  // ✅ If expiring in next 5 mins, refresh quietly (optional)
+  if (parseInt(expirationTime, 10) - now < 5 * 60 * 1000) {
+    console.log('⚠️ Token expiring soon, refreshing in background...');
+    refreshAccessToken(); // no await
   }
 
   return accessToken;
 }
+
+
+
 
 /**
  * Clean up URL to remove tokens

@@ -18,16 +18,34 @@ window.onload = async () => {
   const accessToken = getAccessTokenFromUrl();
 
   if (accessToken) {
+    // 💾 Store the token so it persists after refresh
+    localStorage.setItem('spotify_access_token', accessToken);
+    // Set expiration 1 hour from now (Spotify tokens last ~3600s)
+    const expiresIn = 3600; // or get this from URL if you're parsing it
+    const expirationTimestamp = Date.now() + expiresIn * 1000;
+    localStorage.setItem('spotify_token_expiration', expirationTimestamp.toString());
+
+    localStorage.setItem('spotify_token_scope', 'user-read-private user-read-email user-read-playback-state user-modify-playback-state streaming');
+
+    // 🧼 Clean the URL (remove code=... from the bar)
+    window.history.replaceState({}, document.title, '/');
+  
+    // 🚀 Start visualizer
     showVisualizer(accessToken);
   } else {
     const storedToken = await getStoredAccessToken();
+    console.log('📦 Stored token:', storedToken);
+    
     if (storedToken) {
       showVisualizer(storedToken);
     } else {
+      console.warn('⚠️ No stored token, showing login screen.');
       showLoginScreen();
     }
+    
   }
-};
+  
+
 
 /**
  * Show the visualizer and initialize it with the access token
@@ -109,4 +127,5 @@ function showError(message) {
 
   document.getElementById('error-message').textContent = message;
   errorOverlay.style.display = 'flex';
+}
 }

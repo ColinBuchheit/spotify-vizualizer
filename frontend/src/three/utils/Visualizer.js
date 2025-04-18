@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { renderTrackInfo } from '../../ui/TrackInfo.js';
 import { createVolumeControl } from '../../ui/VolumeControl.js';
-import { refreshAccessToken } from '../../auth/handleAuth.js';
+import { refreshAccessToken, getStoredAccessToken } from '../../auth/handleAuth.js';
 import { createMusicBrowser } from '../../ui/MusicBrowser.js';
 import audioAnalyzer from '../../audio/AudioAnalyzer.js';
 import { getCurrentlyPlayingTrack, getAudioAnalysis, getAudioFeatures } from '../../spotify/spotifyAPI.js';
@@ -229,10 +229,18 @@ function setupAudioAnalyzer() {
 async function fetchTrackAnalysis(trackId) {
   try {
     // Get audio analysis and features in parallel
-    const [analysisResponse, featuresResponse] = await Promise.all([
-      getAudioAnalysis(trackId, accessTokenValue),
-      getAudioFeatures(trackId, accessTokenValue)
-    ]);
+    const token = await getStoredAccessToken();
+
+if (!token) {
+  console.error('❌ Cannot fetch track analysis – token missing or invalid.');
+  return;
+}
+
+const [analysisResponse, featuresResponse] = await Promise.all([
+  getAudioAnalysis(trackId, token),
+  getAudioFeatures(trackId, token)
+]);
+
     
     // Store analysis data
     currentTrackAnalysis = analysisResponse;
@@ -246,7 +254,7 @@ async function fetchTrackAnalysis(trackId) {
     
     console.log('Track analysis loaded:', trackId);
   } catch (error) {
-    console.error('Error fetching track analysis:', error);
+    console.error(`❌ Error fetching analysis for track ${trackId}:`, error);
     
     // Set default values if analysis fails
     currentAudioFeatures = {
@@ -310,6 +318,8 @@ function setupVolumeControl() {
   document.body.appendChild(volumeControl.element);
 }
 
+
+
 /**
  * Enhanced Spotify Player initialization with fallbacks and retries
  * @param {string} accessToken - Spotify access token
@@ -317,20 +327,39 @@ function setupVolumeControl() {
  */
 async function setupSpotifyPlayer(accessToken) {
   // First verify premium status
-  let isPremium = false;
-  try {
-    const response = await fetch(`/auth/verify-premium?access_token=${accessToken}`);
-    const data = await response.json();
-    isPremium = data.isPremium;
-    
-    if (!isPremium) {
-      showMessage('Spotify Premium is required for full visualization features.', 8000);
-      // Continue anyway - we'll have fallbacks
+  // First verify premium status
+let isPremium = false;
+try {
+  // Use 127.0.0.1 instead of localhost to match exactly how your server is running
+  const baseUrl = window.location.hostname === 'localhost' ? 
+    'http://127.0.0.1:8888' : // Match exactly what your server logs show
+    `${window.location.protocol}//${window.location.hostname}:8888`;
+  
+  console.log('Verifying premium status at:', `${baseUrl}/auth/verify-premium`);
+  
+  const response = await fetch(`${baseUrl}/auth/verify-premium`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
     }
-  } catch (error) {
-    console.warn('Could not verify premium status:', error);
-    // Continue with initialization assuming it might work
+  });
+    
+  // Check if response is OK before trying to parse JSON
+  if (!response.ok) {
+    console.warn(`Premium status check failed: ${response.status} ${response.statusText}`);
+    throw new Error(`Premium verification failed with status: ${response.status}`);
   }
+  
+  const data = await response.json();
+  isPremium = data.isPremium;
+  
+  if (!isPremium) {
+    showMessage('Spotify Premium is required for full visualization features.', 8000);
+    // Continue anyway - we'll have fallbacks
+  }
+} catch (error) {
+  console.warn('Could not verify premium status:', error);
+  // Continue with initialization assuming it might work
+}
 
   // Wait with timeout for SDK to be fully loaded
   try {
@@ -507,6 +536,8 @@ async function setupSpotifyPlayer(accessToken) {
       
       // Show track change message
       showMessage(`Now playing: ${track.name} by ${track.artists[0].name}`);
+      console.log('🎵 Track ID:', track.id, 'URI:', track.uri);
+
     }
     
     // Update current progress
@@ -839,22 +870,29 @@ function onWindowResize() {
  * Initialize music browser for direct track selection
  * @param {string} deviceId - The Spotify player device ID
  */
-function initializeMusicBrowser(deviceId) {
-  if (!player || !accessTokenValue) {
-    console.warn('Cannot initialize music browser: player or token not available');
+async function initializeMusicBrowser(deviceId) {
+  if (!player) {
+    console.warn('Cannot initialize music browser: Spotify player not available');
     return null;
   }
-  
+
+  const freshToken = await getStoredAccessToken();
+
+  if (!freshToken) {
+    console.warn('Cannot initialize music browser: no valid access token found');
+    return null;
+  }
+
   try {
-    // Create music browser component and pass the device ID
-    const browser = createMusicBrowser(player, accessTokenValue, deviceId);
-    
+    // Create music browser component with fresh token
+    const browser = createMusicBrowser(player, freshToken, deviceId);
+
     // Add to the DOM
     document.body.appendChild(browser.element);
-    
+
     // Show a welcome message
     showMessage('Tip: Click the Music button in the top right to browse and play tracks', 7000);
-    
+
     return browser;
   } catch (error) {
     console.error('Error initializing music browser:', error);

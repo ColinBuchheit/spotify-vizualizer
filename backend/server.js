@@ -13,10 +13,11 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://127.0.0.1:5173';
 
 // Middleware
 app.use(express.json()); // Parse JSON request bodies
+// In your backend server.js, make sure CORS is properly configured:
 app.use(cors({
-  origin: FRONTEND_URL, // Allow requests from frontend
+  origin: ['http://localhost:5173', 'http://127.0.0.1:5173'], // Allow both origins
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  credentials: true // Allow cookies
+  credentials: true
 }));
 
 // Log requests in development

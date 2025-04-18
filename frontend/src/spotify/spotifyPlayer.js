@@ -119,7 +119,7 @@ export function getDeviceId() {
 
 /**
  * Play a specific track
- * @param {string} uri - Spotify track URI
+ * @param {string} uri - Spotify track URI (e.g., 'spotify:track:xyz')
  * @param {string} accessToken - Access token
  * @returns {Promise}
  */
@@ -127,6 +127,17 @@ export async function playTrack(uri, accessToken) {
   if (!deviceId) {
     throw new Error('Player not initialized or device ID not available');
   }
+
+  // Validate the track URI format
+  if (!uri || typeof uri !== 'string' || !uri.startsWith('spotify:track:')) {
+    console.warn('Invalid Spotify track URI:', uri);
+    throw new Error('Invalid Spotify track URI');
+  }
+
+  // Wait briefly to ensure the device is ready after connecting
+  await new Promise(resolve => setTimeout(resolve, 1500));
+
+  console.log(`Sending play request for track: ${uri} on device: ${deviceId}`);
 
   const response = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
     method: 'PUT',
@@ -140,9 +151,14 @@ export async function playTrack(uri, accessToken) {
   });
 
   if (!response.ok) {
-    throw new Error('Failed to play track');
+    const errorData = await response.json();
+    console.error('Failed to play track:', errorData);
+    throw new Error(`Failed to play track: ${response.status} ${response.statusText}`);
   }
+
+  console.log('Track play initiated successfully');
 }
+
 
 /**
  * Toggle play/pause

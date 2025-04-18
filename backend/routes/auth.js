@@ -122,26 +122,23 @@ router.post('/refresh_token', async (req, res) => {
   }
 });
 
-// Verify premium status
 router.get('/verify-premium', async (req, res) => {
-  const { access_token } = req.query;
-  
+  const access_token = req.headers.authorization?.split(' ')[1]; // Extract from Bearer header
+
   if (!access_token) {
     return res.status(400).json({ error: 'No access token provided' });
   }
-  
+
   try {
-    // Check if user has premium account
     const response = await axios.get('https://api.spotify.com/v1/me', {
       headers: {
-        'Authorization': `Bearer ${access_token}`
+        Authorization: `Bearer ${access_token}`
       }
     });
-    
+
     const user = response.data;
     const isPremium = user.product === 'premium';
-    
-    // Return user info along with premium status
+
     res.json({
       isPremium,
       user: {
@@ -152,8 +149,11 @@ router.get('/verify-premium', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error verifying premium status:', error);
-    res.status(500).json({ error: 'Failed to verify premium status' });
+    console.error('Error verifying premium status:', error.response?.data || error);
+    res.status(500).json({ 
+      error: 'Failed to verify premium status',
+      message: error.response?.data?.error?.message || error.message 
+    });
   }
 });
 
