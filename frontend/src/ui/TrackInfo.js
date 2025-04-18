@@ -1,20 +1,17 @@
 // src/ui/TrackInfo.js
-import { togglePlayPause, skipToNext, skipToPrevious } from '../spotify/spotifyPlayer.js';
+// Complete implementation with playback information but without duplicate controls
 
-let lastTrackId = null;
-let isPlaying = true;
-let accessToken = null;
+import { getStoredAccessToken } from '../auth/handleAuth.js';
+
+let currentTrackId = null;
+let isPlaying = false;
 
 /**
- * Render track information and playback controls
+ * Render track information display
  * @param {Object} trackData - Track data from Spotify API
+ * @param {Function} onTrackInfoClick - Optional callback when track info is clicked
  */
-export function renderTrackInfo(trackData) {
-  // Store access token if not already stored
-  if (!accessToken) {
-    accessToken = localStorage.getItem('spotify_access_token');
-  }
-
+export function renderTrackInfo(trackData, onTrackInfoClick = null) {
   // Remove existing track info if present
   const existingInfo = document.getElementById('track-info');
   if (existingInfo) {
@@ -33,8 +30,8 @@ export function renderTrackInfo(trackData) {
     isPlaying = trackData.is_playing;
   }
   
-  // Update last track ID
-  lastTrackId = trackId;
+  // Update track ID
+  currentTrackId = trackId;
   
   // Create the container
   const container = document.createElement('div');
@@ -50,182 +47,285 @@ export function renderTrackInfo(trackData) {
         <div class="album">${album}</div>
       </div>
     </div>
-    <div class="playback-controls">
-      <button class="control-button previous" aria-label="Previous Track">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polygon points="19 20 9 12 19 4 19 20"></polygon>
-          <line x1="5" y1="4" x2="5" y2="20"></line>
-        </svg>
-      </button>
-      <button class="control-button play-pause" aria-label="${isPlaying ? 'Pause' : 'Play'}">
-        ${isPlaying ? getPauseIcon() : getPlayIcon()}
-      </button>
-      <button class="control-button next" aria-label="Next Track">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polygon points="5 4 15 12 5 20 5 4"></polygon>
-          <line x1="19" y1="4" x2="19" y2="20"></line>
-        </svg>
-      </button>
-    </div>
   `;
+  
+  // Add click handler for the container if callback provided
+  if (typeof onTrackInfoClick === 'function') {
+    container.addEventListener('click', () => {
+      onTrackInfoClick(trackData);
+    });
+    container.style.cursor = 'pointer';
+    
+    // Add tooltip
+    container.setAttribute('title', 'Click for more details');
+  }
   
   // Add to the DOM
   document.body.appendChild(container);
-  
-  // Add event listeners for controls
-  setupControlEvents();
   
   // Animate entrance
   setTimeout(() => {
     container.style.opacity = 1;
     container.style.transform = 'translateY(0)';
   }, 10);
+  
+  return container;
 }
 
 /**
- * Set up event listeners for playback control buttons
+ * Update track information without recreating the entire element
+ * @param {Object} trackData - Track data from Spotify API
  */
-function setupControlEvents() {
-  // Play/Pause button
-  const playPauseButton = document.querySelector('.control-button.play-pause');
-  if (playPauseButton) {
-    playPauseButton.addEventListener('click', () => {
-      togglePlayback();
-    });
+export function updateTrackInfo(trackData) {
+  if (!trackData || !trackData.item) return;
+  
+  const trackInfo = document.getElementById('track-info');
+  if (!trackInfo) {
+    // If track info doesn't exist, create it
+    renderTrackInfo(trackData);
+    return;
   }
   
-  // Previous track button
-  const prevButton = document.querySelector('.control-button.previous');
-  if (prevButton) {
-    prevButton.addEventListener('click', () => {
-      playPreviousTrack();
-    });
+  // Extract track information
+  const name = trackData.item.name || 'Unknown Track';
+  const artist = trackData.item.artists?.[0]?.name || 'Unknown Artist';
+  const album = trackData.item.album?.name || 'Unknown Album';
+  const albumImage = trackData.item.album?.images?.[0]?.url || '';
+  
+  // Update elements
+  const titleEl = trackInfo.querySelector('.title');
+  const artistEl = trackInfo.querySelector('.artist');
+  const albumEl = trackInfo.querySelector('.album');
+  const imgEl = trackInfo.querySelector('img');
+  
+  if (titleEl) titleEl.textContent = name;
+  if (artistEl) artistEl.textContent = artist;
+  if (albumEl) albumEl.textContent = album;
+  if (imgEl) {
+    imgEl.src = albumImage;
+    imgEl.alt = `Album Cover for ${name}`;
   }
   
-  // Next track button
-  const nextButton = document.querySelector('.control-button.next');
-  if (nextButton) {
-    nextButton.addEventListener('click', () => {
-      playNextTrack();
+  // Update play state if available
+  if (trackData.is_playing !== undefined) {
+    isPlaying = trackData.is_playing;
+  }
+  
+  // Update current track ID
+  currentTrackId = trackData.item.id || '';
+}
+
+/**
+ * Get current track info including ID and playing state
+ * @returns {Object} - Current track info
+ */
+export function getCurrentTrackInfo() {
+  return {
+    trackId: currentTrackId,
+    isPlaying
+  };
+}
+
+/**
+ * Get and display more detailed track information
+ * @param {string} trackId - Spotify track ID
+ */
+export async function showDetailedTrackInfo(trackId) {
+  if (!trackId) return;
+  
+  try {
+    // Get access token
+    const accessToken = await getStoredAccessToken();
+    if (!accessToken) {
+      throw new Error('No access token available');
+    }
+    
+    // Get track details from Spotify API
+    const response = await fetch(`https://api.spotify.com/v1/tracks/${trackId}`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
     });
-  }
-}
-
-/**
- * Update the play/pause button UI based on playback state
- */
-function updatePlayPauseButton() {
-  const button = document.querySelector('.control-button.play-pause');
-  if (button) {
-    button.innerHTML = isPlaying ? getPauseIcon() : getPlayIcon();
-    button.setAttribute('aria-label', isPlaying ? 'Pause' : 'Play');
-  }
-}
-
-/**
- * Toggle playback (play/pause)
- */
-async function togglePlayback() {
-  try {
-    // First, update UI to be responsive
-    isPlaying = !isPlaying;
-    updatePlayPauseButton();
     
-    // Then call the player SDK function
-    const success = await togglePlayPause();
+    if (!response.ok) {
+      throw new Error(`Failed to get track details: ${response.status}`);
+    }
     
-    // Update UI based on actual result
-    isPlaying = success;
-    updatePlayPauseButton();
+    const trackDetails = await response.json();
+    
+    // Get audio features for the track
+    const featuresResponse = await fetch(`https://api.spotify.com/v1/audio-features/${trackId}`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
+    });
+    
+    let audioFeatures = null;
+    if (featuresResponse.ok) {
+      audioFeatures = await featuresResponse.json();
+    }
+    
+    // Show modal with detailed info
+    showTrackInfoModal(trackDetails, audioFeatures);
+    
   } catch (error) {
-    console.error('Error toggling playback:', error);
-    // Revert UI if there was an error
-    isPlaying = !isPlaying;
-    updatePlayPauseButton();
-    showPlaybackError('Could not control playback. Try again or refresh the page.');
+    console.error('Error getting detailed track info:', error);
+    showTrackInfoError('Could not load detailed track information');
   }
 }
 
 /**
- * Play next track
+ * Show modal with detailed track information
+ * @param {Object} trackDetails - Track details from Spotify API
+ * @param {Object} audioFeatures - Audio features from Spotify API
  */
-async function playNextTrack() {
-  try {
-    // Call the player SDK function
-    await skipToNext();
-    
-    // Assume we're playing after skipping
-    isPlaying = true;
-    updatePlayPauseButton();
-  } catch (error) {
-    console.error('Error playing next track:', error);
-    showPlaybackError('Could not play next track. Try again or refresh the page.');
+function showTrackInfoModal(trackDetails, audioFeatures) {
+  // Remove existing modal if any
+  const existingModal = document.getElementById('track-info-modal');
+  if (existingModal) {
+    document.body.removeChild(existingModal);
   }
-}
-
-/**
- * Play previous track
- */
-async function playPreviousTrack() {
-  try {
-    // Call the player SDK function
-    await skipToPrevious();
-    
-    // Assume we're playing after going to previous
-    isPlaying = true;
-    updatePlayPauseButton();
-  } catch (error) {
-    console.error('Error playing previous track:', error);
-    showPlaybackError('Could not play previous track. Try again or refresh the page.');
+  
+  // Create modal container
+  const modal = document.createElement('div');
+  modal.id = 'track-info-modal';
+  modal.className = 'track-info-modal';
+  
+  // Format duration
+  const durationMin = Math.floor(trackDetails.duration_ms / 60000);
+  const durationSec = Math.floor((trackDetails.duration_ms % 60000) / 1000);
+  const formattedDuration = `${durationMin}:${durationSec.toString().padStart(2, '0')}`;
+  
+  // Format release date
+  const releaseDate = new Date(trackDetails.album.release_date);
+  const formattedReleaseDate = releaseDate.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+  
+  // Create modal content
+  let modalContent = `
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>${trackDetails.name}</h2>
+        <button class="close-modal">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="track-details-grid">
+          <div class="album-cover">
+            <img src="${trackDetails.album.images[0]?.url || ''}" alt="Album Cover">
+          </div>
+          <div class="track-details-info">
+            <p><strong>Artist:</strong> ${trackDetails.artists.map(a => a.name).join(', ')}</p>
+            <p><strong>Album:</strong> ${trackDetails.album.name}</p>
+            <p><strong>Release Date:</strong> ${formattedReleaseDate}</p>
+            <p><strong>Duration:</strong> ${formattedDuration}</p>
+            <p><strong>Popularity:</strong> ${trackDetails.popularity}/100</p>
+            <p><strong>Track Number:</strong> ${trackDetails.track_number}</p>
+  `;
+  
+  // Add audio features if available
+  if (audioFeatures) {
+    modalContent += `
+            <div class="audio-features">
+              <h3>Audio Features</h3>
+              <div class="feature-bars">
+                <div class="feature-bar">
+                  <label>Energy</label>
+                  <div class="bar-container">
+                    <div class="bar-fill" style="width: ${audioFeatures.energy * 100}%"></div>
+                  </div>
+                  <span>${Math.round(audioFeatures.energy * 100)}%</span>
+                </div>
+                <div class="feature-bar">
+                  <label>Danceability</label>
+                  <div class="bar-container">
+                    <div class="bar-fill" style="width: ${audioFeatures.danceability * 100}%"></div>
+                  </div>
+                  <span>${Math.round(audioFeatures.danceability * 100)}%</span>
+                </div>
+                <div class="feature-bar">
+                  <label>Valence (Positivity)</label>
+                  <div class="bar-container">
+                    <div class="bar-fill" style="width: ${audioFeatures.valence * 100}%"></div>
+                  </div>
+                  <span>${Math.round(audioFeatures.valence * 100)}%</span>
+                </div>
+                <div class="feature-bar">
+                  <label>Acousticness</label>
+                  <div class="bar-container">
+                    <div class="bar-fill" style="width: ${audioFeatures.acousticness * 100}%"></div>
+                  </div>
+                  <span>${Math.round(audioFeatures.acousticness * 100)}%</span>
+                </div>
+                <div class="feature-bar">
+                  <label>Tempo</label>
+                  <span>${Math.round(audioFeatures.tempo)} BPM</span>
+                </div>
+              </div>
+            </div>
+    `;
   }
+  
+  // Add Spotify link
+  modalContent += `
+            <div class="spotify-link">
+              <a href="${trackDetails.external_urls.spotify}" target="_blank" rel="noopener noreferrer">
+                Open in Spotify
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // Set modal content
+  modal.innerHTML = modalContent;
+  
+  // Add to DOM
+  document.body.appendChild(modal);
+  
+  // Add event listeners
+  modal.querySelector('.close-modal').addEventListener('click', () => {
+    document.body.removeChild(modal);
+  });
+  
+  // Close when clicking outside content
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      document.body.removeChild(modal);
+    }
+  });
+  
+  // Show modal with animation
+  setTimeout(() => {
+    modal.classList.add('visible');
+  }, 10);
 }
 
 /**
  * Show error message
- * @param {string} message - Error message to display
+ * @param {string} message - Error message
  */
-function showPlaybackError(message) {
-  const errorDiv = document.createElement('div');
-  errorDiv.className = 'message-notification';
-  errorDiv.textContent = message;
+function showTrackInfoError(message) {
+  const errorEl = document.createElement('div');
+  errorEl.className = 'track-info-error';
+  errorEl.textContent = message;
   
-  document.body.appendChild(errorDiv);
+  document.body.appendChild(errorEl);
   
-  // Show message
   setTimeout(() => {
-    errorDiv.classList.add('show');
+    errorEl.classList.add('show');
   }, 10);
   
-  // Remove after delay
   setTimeout(() => {
-    errorDiv.classList.remove('show');
+    errorEl.classList.remove('show');
     setTimeout(() => {
-      document.body.removeChild(errorDiv);
+      if (document.body.contains(errorEl)) {
+        document.body.removeChild(errorEl);
+      }
     }, 300);
-  }, 5000);
-}
-
-/**
- * Get play icon SVG
- * @returns {string} - SVG HTML for play icon
- */
-function getPlayIcon() {
-  return `
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <polygon points="5 3 19 12 5 21 5 3"></polygon>
-    </svg>
-  `;
-}
-
-/**
- * Get pause icon SVG
- * @returns {string} - SVG HTML for pause icon
- */
-function getPauseIcon() {
-  return `
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <rect x="6" y="4" width="4" height="16"></rect>
-      <rect x="14" y="4" width="4" height="16"></rect>
-    </svg>
-  `;
+  }, 3000);
 }

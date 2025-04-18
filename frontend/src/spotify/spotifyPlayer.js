@@ -1,15 +1,15 @@
 // src/spotify/spotifyPlayer.js
-// Implements Spotify Web Playback SDK functionality
+// Enhanced Spotify Player implementation with improved error handling and state management
 
 let player = null;
 let deviceId = null;
 let playerInitPromise = null;
 let playerInitResolver = null;
+let stateListeners = [];
 
 /**
  * Initialize the Spotify Player SDK
  * This function is called when the SDK script is loaded
- * The onSpotifyWebPlaybackSDKReady function now needs to be defined globally in index.html
  */
 export function setupGlobalSpotifyCallback() {
   // Check if callback is already defined
@@ -63,42 +63,100 @@ export async function setupSpotifyPlayer(accessToken) {
       volume: 0.5
     });
 
-    // Connect player and set up event handlers
-    player.addListener('ready', ({ device_id }) => {
-      console.log('Spotify Player ready with Device ID:', device_id);
-      deviceId = device_id;
-    });
-
-    player.addListener('not_ready', ({ device_id }) => {
-      console.log('Device ID has gone offline:', device_id);
-      deviceId = null;
-    });
-
-    player.addListener('initialization_error', ({ message }) => {
-      console.error('Failed to initialize player:', message);
-    });
-
-    player.addListener('authentication_error', ({ message }) => {
-      console.error('Failed to authenticate player:', message);
-    });
-
-    player.addListener('account_error', ({ message }) => {
-      console.error('Failed to validate Spotify account:', message);
-      alert('Premium required: This visualizer requires a Spotify Premium account');
-    });
-
-    player.addListener('playback_error', ({ message }) => {
-      console.error('Failed to perform playback:', message);
-    });
+    // Enhanced error handling
+    setupPlayerEventListeners();
 
     // Connect to the player
-    const connected = await player.connect();
-    if (!connected) {
-      throw new Error('Failed to connect to Spotify Player');
+    try {
+      const connected = await Promise.race([
+        player.connect(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Connect timeout')), 8000)
+        )
+      ]);
+      
+      if (!connected) {
+        throw new Error('Failed to connect to Spotify Player');
+      }
+      
+      console.log('Successfully connected to Spotify');
+    } catch (error) {
+      console.error('Failed to connect to Spotify:', error);
+      throw error;
     }
   }
 
   return player;
+}
+
+/**
+ * Set up event listeners for the player
+ */
+function setupPlayerEventListeners() {
+  player.addListener('ready', ({ device_id }) => {
+    console.log('Spotify Player ready with Device ID:', device_id);
+    deviceId = device_id;
+    
+    // Store globally for other components
+    window.spotifyDeviceId = device_id;
+  });
+
+  player.addListener('not_ready', ({ device_id }) => {
+    console.log('Device ID has gone offline:', device_id);
+    if (deviceId === device_id) {
+      deviceId = null;
+    }
+  });
+
+  player.addListener('initialization_error', ({ message }) => {
+    console.error('Failed to initialize player:', message);
+  });
+
+  player.addListener('authentication_error', ({ message }) => {
+    console.error('Failed to authenticate player:', message);
+  });
+
+  player.addListener('account_error', ({ message }) => {
+    console.error('Failed to validate Spotify account:', message);
+    if (message.toLowerCase().includes('premium')) {
+      console.error('Premium account required for playback');
+    }
+  });
+
+  player.addListener('playback_error', ({ message }) => {
+    console.error('Failed to perform playback:', message);
+  });
+  
+  // Set up state change listener that notifies all registered listeners
+  player.addListener('player_state_changed', (state) => {
+    // Notify all listeners
+    for (const listener of stateListeners) {
+      try {
+        listener(state);
+      } catch (error) {
+        console.error('Error in player state listener:', error);
+      }
+    }
+  });
+}
+
+/**
+ * Add a state change listener
+ * @param {Function} listener - Function to call when state changes
+ * @returns {Function} - Function to remove the listener
+ */
+export function addStateChangeListener(listener) {
+  if (typeof listener !== 'function') return () => {};
+  
+  stateListeners.push(listener);
+  
+  // Return function to remove this listener
+  return () => {
+    const index = stateListeners.indexOf(listener);
+    if (index !== -1) {
+      stateListeners.splice(index, 1);
+    }
+  };
 }
 
 /**
@@ -119,46 +177,49 @@ export function getDeviceId() {
 
 /**
  * Play a specific track
- * @param {string} uri - Spotify track URI (e.g., 'spotify:track:xyz')
+ * @param {string} uri - Spotify track URI
  * @param {string} accessToken - Access token
  * @returns {Promise}
  */
 export async function playTrack(uri, accessToken) {
-  if (!deviceId) {
+  const currentDeviceId = deviceId || window.spotifyDeviceId;
+  
+  if (!currentDeviceId) {
     throw new Error('Player not initialized or device ID not available');
   }
 
-  // Validate the track URI format
+  // Validate track URI
   if (!uri || typeof uri !== 'string' || !uri.startsWith('spotify:track:')) {
-    console.warn('Invalid Spotify track URI:', uri);
     throw new Error('Invalid Spotify track URI');
   }
 
-  // Wait briefly to ensure the device is ready after connecting
-  await new Promise(resolve => setTimeout(resolve, 1500));
+  console.log(`Sending play request for track: ${uri} on device: ${currentDeviceId}`);
 
-  console.log(`Sending play request for track: ${uri} on device: ${deviceId}`);
+  try {
+    const response = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${currentDeviceId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({
+        uris: [uri]
+      })
+    });
 
-  const response = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`
-    },
-    body: JSON.stringify({
-      uris: [uri]
-    })
-  });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('Failed to play track:', errorData);
+      throw new Error(`Failed to play track: ${response.status} ${response.statusText}`);
+    }
 
-  if (!response.ok) {
-    const errorData = await response.json();
-    console.error('Failed to play track:', errorData);
-    throw new Error(`Failed to play track: ${response.status} ${response.statusText}`);
+    console.log('Track play initiated successfully');
+    return true;
+  } catch (error) {
+    console.error('Error playing track:', error);
+    throw error;
   }
-
-  console.log('Track play initiated successfully');
 }
-
 
 /**
  * Toggle play/pause
@@ -169,16 +230,20 @@ export async function togglePlayPause() {
     throw new Error('Player not initialized');
   }
 
-  const isPaused = await player.getCurrentState().then(state => {
-    return !state || state.paused;
-  });
-
-  if (isPaused) {
-    await player.resume();
-    return true;
-  } else {
-    await player.pause();
-    return false;
+  try {
+    const state = await player.getCurrentState();
+    const isPaused = !state || state.paused;
+    
+    if (isPaused) {
+      await player.resume();
+      return true;
+    } else {
+      await player.pause();
+      return false;
+    }
+  } catch (error) {
+    console.error('Error toggling playback:', error);
+    throw error;
   }
 }
 
@@ -191,7 +256,13 @@ export async function skipToNext() {
     throw new Error('Player not initialized');
   }
   
-  return player.nextTrack();
+  try {
+    await player.nextTrack();
+    return true;
+  } catch (error) {
+    console.error('Error skipping to next track:', error);
+    throw error;
+  }
 }
 
 /**
@@ -203,5 +274,43 @@ export async function skipToPrevious() {
     throw new Error('Player not initialized');
   }
   
-  return player.previousTrack();
+  try {
+    await player.previousTrack();
+    return true;
+  } catch (error) {
+    console.error('Error skipping to previous track:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get the current playback state
+ * @returns {Promise<Object>} - Current playback state
+ */
+export async function getCurrentState() {
+  if (!player) {
+    throw new Error('Player not initialized');
+  }
+  
+  try {
+    return await player.getCurrentState();
+  } catch (error) {
+    console.error('Error getting current state:', error);
+    throw error;
+  }
+}
+
+/**
+ * Check if the player is connected and ready
+ * @returns {Promise<boolean>} - True if ready
+ */
+export async function isPlayerReady() {
+  if (!player) return false;
+  
+  try {
+    const state = await player.getCurrentState();
+    return !!state;
+  } catch (error) {
+    return false;
+  }
 }
