@@ -447,7 +447,199 @@ export class AudioAnalyzer {
     
     return false;
   }
+  /**
+ * Generate high-quality synthetic data based on available track metadata
+ * This provides a much better fallback when API access fails
+ * @param {number} time - Current animation time in seconds
+ * @param {Object} trackInfo - Any available track metadata (optional)
+ */
+generateSophisticatedFallback(time, trackInfo = null) {
+  // Extract any available track properties or use defaults
+  const energy = trackInfo?.energy || this.energy || 0.5;
+  const tempo = trackInfo?.tempo || this.tempo || 120;
+  const danceability = trackInfo?.danceability || this.danceability || 0.5;
+  const valence = trackInfo?.valence || this.valence || 0.5;
+  
+  // Beat detection with realistic timing
+  const beatInterval = 60 / tempo; // beats per second
+  const beatOffset = this.lastBeatTime % beatInterval; // maintain phase
+  
+  // Create more realistic beat patterns based on danceability
+  let shouldTriggerBeat = false;
+  
+  if (time - this.lastBeatTime >= beatInterval) {
+    // More danceable tracks have more consistent beats
+    const randomFactor = 1 - (danceability * 0.5); // 0.5-1.0 range
+    const randomVariation = (Math.random() * 2 - 1) * randomFactor * 0.1;
+    
+    // Beat with some natural variation
+    if (time - this.lastBeatTime >= beatInterval + randomVariation) {
+      shouldTriggerBeat = true;
+    }
+  }
+  
+  if (shouldTriggerBeat) {
+    // Trigger beat with appropriate intensity
+    this.beatDetected = true;
+    
+    // Higher energy and danceability = stronger beats
+    this.beatIntensity = 0.4 + (energy * 0.3) + (danceability * 0.3);
+    
+    // Sometimes add accent beats based on music style
+    if (Math.random() < danceability * 0.3) {
+      this.beatIntensity *= 1.3; // Occasional stronger beats
+    }
+    
+    this.lastBeatTime = time;
+    
+    // Call beat callback with confidence proportional to danceability
+    if (this.onBeat) {
+      this.onBeat({
+        time,
+        intensity: this.beatIntensity,
+        confidence: 0.6 + (danceability * 0.4)
+      });
+    }
+  } else {
+    this.beatDetected = false;
+  }
+  
+  // Generate frequency profiles with musical patterns
+  const beatProgress = (time - this.lastBeatTime) / beatInterval;
+  
+  // Base volume with natural fade characteristic of music
+  const fadeShape = Math.pow(1 - beatProgress, 0.5); // Non-linear fade
+  this.volume = Math.max(0.2, energy * (0.6 + 0.4 * fadeShape));
+  
+  // Bass frequencies - strong on beat, fades faster for low energy tracks
+  const bassFade = Math.pow(1 - beatProgress, energy * 0.5 + 0.5);
+  this.bass = Math.max(0.2, energy * (
+    0.6 * bassFade + 
+    0.4 * Math.pow(Math.sin(time * (1 + danceability * 0.5)), 2)
+  ));
+  
+  // Mid frequencies - more variation, affected by valence (happiness)
+  const midFreq = 2 + valence; // Happier songs have faster mid oscillation
+  this.mid = Math.max(0.15, energy * (
+    0.4 * Math.pow(1 - beatProgress, 0.7) + // Some relation to beat
+    0.6 * Math.pow(Math.sin(time * midFreq + 0.4), 2) // Independent oscillation
+  ));
+  
+  // Treble frequencies - fastest changes, less tied to beat
+  const trebleFreq = 3 + energy * 2;
+  this.treble = Math.max(0.1, energy * (
+    0.3 * Math.pow(1 - beatProgress, 0.3) + // Quick decay after beat
+    0.7 * Math.pow(Math.sin(time * trebleFreq + beatProgress * 2), 2) // Complex oscillation
+  ));
+  
+  // Different frequency profiles based on valence (happiness)
+  if (valence > 0.6) { // Happier music
+    this.treble *= 1.2; // More high-end
+    this.mid *= 1.1;
+  } else if (valence < 0.4) { // Sadder music
+    this.bass *= 1.1; // More bass
+    this.treble *= 0.9; // Less high-end
+  }
+  
+  // Call analysis callback with generated data
+  if (this.onAnalyzed) {
+    this.onAnalyzed({
+      volume: this.volume,
+      bass: this.bass,
+      mid: this.mid,
+      treble: this.treble,
+      beatDetected: this.beatDetected,
+      beatIntensity: this.beatIntensity
+    });
+  }
 }
+
+/**
+ * Significantly improved track progress synchronization
+ * @param {number} progressMs - Current track progress in milliseconds
+ */
+updateProgress(progressMs) {
+  // Store previous progress for comparison
+  const previousProgress = this.trackProgress;
+  
+  // Convert to seconds
+  this.trackProgress = progressMs / 1000;
+  
+  // Calculate how much time has passed since last update
+  const deltaTime = this.trackProgress - previousProgress;
+  
+  // Check for unexpected jumps (seeking, buffering, etc.)
+  const isSeek = Math.abs(deltaTime) > 1.0; // More than 1 second jump
+  
+  // If we haven't loaded any analysis data yet, use sophisticated fallback
+  if (!this.segments || this.segments.length === 0 || !this.beats || this.beats.length === 0) {
+    if (this.analyzing && !this.isPaused) {
+      // Use the current time for animation
+      const now = performance.now() / 1000;
+      this.generateSophisticatedFallback(now);
+    } else if (this.isPaused) {
+      // Minimal values when paused
+      this.setMinimalValues();
+    }
+    return;
+  }
+  
+  // Process actual data when available
+  if (this.analyzing && !this.isPaused) {
+    // If seeking occurred, reset any stateful processing
+    if (isSeek) {
+      this.resetStateAfterSeek();
+    }
+    
+    this.processAudioData();
+  } else if (this.isPaused) {
+    this.setMinimalValues();
+  }
+}
+
+/**
+ * Reset internal state after seeking in track
+ */
+resetStateAfterSeek() {
+  // Reset segment indices
+  this.currentSegmentIndex = 0;
+  this.nextSegmentIndex = this.segments.length > 1 ? 1 : 0;
+  
+  // Reset beat detection state
+  this.lastBeatTime = 0;
+  this.beatDetected = false;
+  this.beatIntensity = 0;
+  
+  // Find new segment indices based on current position
+  this.updateSegmentIndices();
+}
+
+/**
+ * Set minimal audio values when paused
+ */
+setMinimalValues() {
+  this.volume = 0.1;
+  this.bass = 0.1;
+  this.mid = 0.1;
+  this.treble = 0.1;
+  this.beatDetected = false;
+  this.beatIntensity = 0;
+  
+  // Call onAnalyzed callback
+  if (this.onAnalyzed) {
+    this.onAnalyzed({
+      volume: this.volume,
+      bass: this.bass,
+      mid: this.mid,
+      treble: this.treble,
+      beatDetected: this.beatDetected,
+      beatIntensity: this.beatIntensity
+    });
+  }
+}
+}
+
+
 
 // Export a singleton instance
 const audioAnalyzer = new AudioAnalyzer();

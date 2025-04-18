@@ -256,6 +256,117 @@ export async function isPremiumUser(accessToken) {
   }
 }
 
+// Track analysis cache to reduce API calls and handle 403 errors
+const analysisCache = new Map();
+const featuresCache = new Map();
+
+/**
+ * Get audio analysis with caching and robust error handling
+ */
+export async function getAudioAnalysis(trackId, accessToken) {
+  if (!trackId) {
+    console.error('No track ID provided for audio analysis');
+    return null;
+  }
+
+  // Check cache first
+  if (analysisCache.has(trackId)) {
+    return analysisCache.get(trackId);
+  }
+    
+  try {
+    const response = await spotifyAxios.get(`/audio-analysis/${trackId}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      },
+      timeout: 8000 // Add timeout to prevent hanging requests
+    });
+
+    // Cache the successful response
+    analysisCache.set(trackId, response.data);
+    return response.data;
+  } catch (error) {
+    console.error('Audio analysis error details:', {
+      status: error.response?.status,
+      message: error.response?.data?.error?.message,
+      trackId
+    });
+    
+    // Special handling for 403 errors
+    if (error.response && error.response.status === 403) {
+      console.log('Audio analysis access forbidden for this track. Using fallback values.');
+      
+      // Check for specific error details
+      const errorMsg = error.response.data?.error?.message || '';
+      if (errorMsg.toLowerCase().includes('premium')) {
+        showMessage('Full audio analysis requires Spotify Premium.');
+      }
+      
+      // Return null so the calling code can use fallback values
+      return null;
+    }
+    
+    // For 429 Too Many Requests - implement backoff
+    if (error.response && error.response.status === 429) {
+      const retryAfter = error.response.headers['retry-after'] || 3;
+      console.warn(`Rate limited. Retry after ${retryAfter} seconds`);
+      // Could implement retry logic here
+    }
+    
+    return null;
+  }
+}
+
+/**
+ * Get audio features with improved error handling
+ */
+export async function getAudioFeatures(trackId, accessToken) {
+  if (!trackId) {
+    console.error('No track ID provided for audio features');
+    return getDefaultAudioFeatures();
+  }
+  
+  // Check cache first
+  if (featuresCache.has(trackId)) {
+    return featuresCache.get(trackId);
+  }
+  
+  try {
+    const response = await spotifyAxios.get(`/audio-features/${trackId}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      },
+      timeout: 5000 // Add timeout
+    });
+
+    // Cache successful response
+    featuresCache.set(trackId, response.data);
+    return response.data;
+  } catch (error) {
+    // Log detailed error for debugging
+    console.error('Audio features error details:', {
+      status: error.response?.status,
+      message: error.response?.data?.error?.message,
+      trackId
+    });
+    
+    // Handle 403 Forbidden with improved messaging
+    if (error.response && error.response.status === 403) {
+      const errorMsg = error.response.data?.error?.message || '';
+      if (errorMsg.toLowerCase().includes('premium')) {
+        console.warn('Premium account required for audio features access');
+      } else {
+        console.log('Audio features access forbidden for this track. Using default values.');
+      }
+      return getDefaultAudioFeatures();
+    }
+    
+    // Return default features for any error
+    console.log('Error fetching audio features. Returning default values.');
+    return getDefaultAudioFeatures();
+  }
+}
+
 /**
  * Control playback - play, pause, skip, etc.
  * @param {string} action - Action to perform: 'play', 'pause', 'next', 'previous'
